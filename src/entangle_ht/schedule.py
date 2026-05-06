@@ -111,25 +111,6 @@ def num_shots_for_round(m_t: int, delta_t: float, c_stat: float, p_round: float)
     return int(math.ceil((2.0 / r_star**2) * math.log(2.0 / (1.0 - p_round))))
 
 
-def num_shots_known_contrast(
-    m: int,
-    rho: float,
-    epsilon: float,
-    p_success: float,
-) -> int:
-    """Shot rule for the contrast-informed single-round estimator."""
-    if m < 1:
-        raise ValueError(f"m must be at least 1, got {m!r}")
-    if not 0.0 < rho <= 1.0:
-        raise ValueError(f"rho must lie in (0, 1], got {rho!r}")
-    if epsilon <= 0.0:
-        raise ValueError(f"epsilon must be positive, got {epsilon!r}")
-    _validate_probability(p_success, "p_success")
-
-    bound = 2.0 ** (1.0 + 4.0 * m * (1.0 - rho)) - 1.0
-    return int(math.ceil(bound / ((1.0 - p_success) * m**2 * epsilon**2)))
-
-
 def compute_num_rounds(delta_0: float, epsilon: float, gamma: float) -> int:
     if delta_0 <= 0.0:
         raise ValueError(f"delta_0 must be positive, got {delta_0!r}")
@@ -164,6 +145,29 @@ def verify_initial_feasibility(delta_0: float, c_bias: float, rho0: float) -> No
         )
 
 
+def validate_design_hyperparameters(gamma: float, omega: float, c_bias: float) -> None:
+    if not 0.0 < gamma < 1.0:
+        raise ValueError(f"gamma must lie in (0, 1), got {gamma!r}")
+    if not 0.0 < omega < 1.0:
+        raise ValueError(f"omega must lie in (0, 1), got {omega!r}")
+    if c_bias >= gamma:
+        raise ValueError(
+            "The configured gamma is too small for the computed bias budget: "
+            f"c_bias must be < gamma, got {c_bias:.6g} >= {gamma:.6g}. "
+            "Increase gamma or retune c_max/kappa."
+        )
+    c_stat = omega * gamma
+    if c_bias + c_stat > gamma:
+        omega_max = (gamma - c_bias) / gamma
+        raise ValueError(
+            "The configured gamma and omega leave too little contraction slack: "
+            f"c_bias + omega * gamma must be <= gamma, got "
+            f"{c_bias:.6g} + {c_stat:.6g} > {gamma:.6g}. "
+            f"For this configuration, choose omega <= {omega_max:.6g} "
+            "or increase gamma."
+        )
+
+
 def max_starting_amplification(delta_0: float, rho0: float, m_hw: int) -> int:
     if delta_0 <= 0.0:
         raise ValueError(f"delta_0 must be positive, got {delta_0!r}")
@@ -195,8 +199,9 @@ def design_algorithm_parameters(config: DemoConfig) -> AlgorithmParameters:
     c_bias = min(config.c_max, config.kappa * b0)
     verify_initial_feasibility(config.Delta_0, c_bias, config.rho0)
     gamma_star = (c_bias + math.sqrt(c_bias**2 + 8.0)) / 4.0
-    gamma = min(config.gamma_max, max(config.gamma_min, gamma_star))
-    omega = 1.0 - c_bias / gamma
+    gamma = config.gamma
+    omega = config.omega
+    validate_design_hyperparameters(gamma, omega, c_bias)
     c_stat = omega * gamma
     num_rounds = compute_num_rounds(config.Delta_0, config.epsilon, gamma)
     p_round = per_round_success_probability(config.p_total, num_rounds)

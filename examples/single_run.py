@@ -35,13 +35,15 @@ from entangle_ht.utilities import (
 )
 
 
-RHO = 0.97
+RHO = 0.99
 RHO0 = 0.95
 PHI_TRUE = 0.35
 THETA_0 = 0.20
 DELTA_0 = 0.20
-TARGET_RMSE = 0.01
+TARGET_RMSE = 0.001
 P_TOTAL = 0.95
+GAMMA = 0.85
+OMEGA = 0.6
 M_HW = 8
 SEED = 20260415
 OUTPUT_PATH = Path("outputs/single_run_schedule.png")
@@ -57,6 +59,8 @@ def build_example_config() -> DemoConfig:
         Delta_0=DELTA_0,
         epsilon=TARGET_RMSE,
         p_total=P_TOTAL,
+        gamma=GAMMA,
+        omega=OMEGA,
         m_hw=M_HW,
         base_seed=SEED,
     )

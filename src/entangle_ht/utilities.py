@@ -17,8 +17,8 @@ class DemoConfig:
     m_hw: int = 8
     c_max: float = 0.60
     kappa: float = 1.20
-    gamma_min: float = 0.60
-    gamma_max: float = 0.90
+    gamma: float = 0.80
+    omega: float = 0.60
     base_seed: int = 1234
 
 
