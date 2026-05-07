@@ -14,9 +14,7 @@ class DemoConfig:
     epsilon: float = 0.01
     p_total: float = 0.95
     rho0: float = 0.95
-    m_hw: int = 8
-    c_max: float = 0.60
-    kappa: float = 1.20
+    m_hw: int = 100
     gamma: float = 0.80
     omega: float = 0.60
     base_seed: int = 1234
@@ -25,12 +23,10 @@ class DemoConfig:
 @dataclass(frozen=True)
 class AlgorithmParameters:
     m_start: int
-    b0: float
-    c_bias: float
-    gamma_star: float
     gamma: float
     omega: float
     c_stat: float
+    c_bias: float
     num_rounds: int
     p_round: float
 

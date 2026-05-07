@@ -21,14 +21,7 @@ import numpy as np
 
 def build_simulator() -> Any:
     from qiskit_aer import AerSimulator
-
-    # We set max_parallel_threads and max_parallel_experiments to 1 to avoid
-    # parallelism that can cause out-of-memory errors on some machines. Edit
-    # these parameters as needed for your application and hardware.
-    return AerSimulator(
-        max_parallel_threads=1,
-        max_parallel_experiments=1,
-    )
+    return AerSimulator()
 
 
 def build_effective_u(alpha: complex) -> np.ndarray:
@@ -126,7 +119,7 @@ def run_round(
     compiled = transpile(
         circuit,
         simulator,
-        optimization_level=0,
+        optimization_level=1,
         seed_transpiler=seed,
     )
     result = simulator.run(compiled, shots=shots, seed_simulator=seed).result()

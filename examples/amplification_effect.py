@@ -31,20 +31,21 @@ from entangle_ht.utilities import DemoConfig, phase_error
 
 BASE_CONFIG = replace(
     DemoConfig(),
-    rho=0.99,
-    rho0=0.95,
+    rho=0.995,
+    rho0=0.97,
     phi_true=0.35,
     theta_0=0.20,
     Delta_0=0.20,
     p_total=0.95,
     gamma=0.85,
-    omega=0.6,
-    m_hw=8,
+    omega=0.65,
+    m_hw=20,
     base_seed=20260416,
 )
 # EPSILON_GRID = (0.08, 0.06, 0.05, 0.04, 0.03, 0.02) # For quick run test
-EPSILON_GRID = (0.08, 0.04, 0.02, 0.01, 0.005, 0.002, 0.001)
-OUTPUT_PATH = Path("outputs/amplification_effect_demo.png")
+EPSILON_GRID = (0.04, 0.02, 0.01, 0.005, 0.002, 0.001, 0.0005)
+# EPSILON_GRID = (0.04, 0.02, 0.01, 0.005, 0.0025, 0.00125, 0.000625, 0.0003125)
+OUTPUT_DIR = Path("outputs")
 
 
 def configure_matplotlib_cache() -> None:
@@ -192,31 +193,49 @@ def print_measurement_ratio_table(rows: Sequence[Dict[str, float]]) -> None:
         )
 
 
-def plot_amplification_effect(rows: Sequence[Dict[str, float]], output_path: Path) -> None:
+def plot_amplification_effect(rows: Sequence[Dict[str, float]], output_dir: Path) -> None:
     configure_matplotlib_cache()
     import matplotlib.pyplot as plt
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_dir.parent.mkdir(parents=True, exist_ok=True)
 
     epsilon_values = [row["epsilon"] for row in rows]
     entangle_shots = [row["entangle_shots"] for row in rows]
     one_register_shots = [row["one_register_shots"] for row in rows]
     standard_shots = [row["standard_hadamard_shots"] for row in rows]
+
     entangle_errors = [max(row["entangle_errors"], 1e-16) for row in rows]
     one_register_errors = [max(row["one_register_errors"], 1e-16) for row in rows]
-    standard_hadamard_errors = [max(row["standard_hadamard_errors"], 1e-16) for row in rows]
+    standard_hadamard_errors = [
+        max(row["standard_hadamard_errors"], 1e-16) for row in rows
+    ]
 
-    fig, axes = plt.subplots(2, 1, figsize=(8, 10), sharex=True)
-    axes[0].plot(
+    measurement_output_path = output_dir / "amplification_demo_shots.png"
+    error_output_path = output_dir / "amplification_demo_errors.png"
+
+    # Ratios relative to iterative entangled HT
+    non_entangled_ratios = [
+        row["one_register_shots"] / row["entangle_shots"] for row in rows
+    ]
+    standard_ratios = [
+        row["standard_hadamard_shots"] / row["entangle_shots"] for row in rows
+    ]
+
+    # -------------------------------------------------------------------------
+    # Figure 1: measurement count
+    # -------------------------------------------------------------------------
+    fig_measurements, ax = plt.subplots(figsize=(8, 5))
+
+    ax.plot(
         epsilon_values,
         standard_shots,
-        marker="x",
+        marker="D",
         linestyle="-.",
         linewidth=2.2,
         color="tab:orange",
-        label=rf"Standard HT",
+        label="Standard HT",
     )
-    axes[0].plot(
+    ax.plot(
         epsilon_values,
         one_register_shots,
         marker="^",
@@ -225,7 +244,7 @@ def plot_amplification_effect(rows: Sequence[Dict[str, float]], output_path: Pat
         color="tab:green",
         label="Iterative non-entangled HT",
     )
-    axes[0].plot(
+    ax.plot(
         epsilon_values,
         entangle_shots,
         marker="o",
@@ -234,8 +253,9 @@ def plot_amplification_effect(rows: Sequence[Dict[str, float]], output_path: Pat
         label="Iterative entangled HT",
     )
 
+    # Annotate max(m_t) on entangled curve
     for row in rows:
-        axes[0].annotate(
+        ax.annotate(
             f"max(m_t)={int(row['max_m_used'])}",
             xy=(row["epsilon"], row["entangle_shots"]),
             xytext=(0, 8),
@@ -245,16 +265,57 @@ def plot_amplification_effect(rows: Sequence[Dict[str, float]], output_path: Pat
             color="tab:blue",
         )
 
-    axes[1].plot(
+    # Annotate ratios on the two higher-shot methods
+    for eps, shots, ratio in zip(epsilon_values, one_register_shots, non_entangled_ratios):
+        ax.annotate(
+            f"{ratio:.2f}x",
+            xy=(eps, shots),
+            xytext=(0, 8),
+            textcoords="offset points",
+            ha="center",
+            fontsize=8,
+            color="tab:green",
+        )
+
+    for eps, shots, ratio in zip(epsilon_values, standard_shots, standard_ratios):
+        ax.annotate(
+            f"{ratio:.2f}x",
+            xy=(eps, shots),
+            xytext=(0, -12),
+            textcoords="offset points",
+            ha="center",
+            fontsize=8,
+            color="tab:orange",
+        )
+
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlim(max(epsilon_values), min(epsilon_values))
+    ax.set_xlabel(r"Target accuracy")
+    ax.set_ylabel("Number of measurements")
+    ax.set_title("Amplification effect on measurement count")
+    ax.grid(alpha=0.3, which="both")
+    ax.legend()
+
+    fig_measurements.tight_layout()
+    save_figure(fig_measurements, measurement_output_path, dpi=180)
+    plt.close(fig_measurements)
+
+    # -------------------------------------------------------------------------
+    # Figure 2: observed error
+    # -------------------------------------------------------------------------
+    fig_errors, ax = plt.subplots(figsize=(8, 5))
+
+    ax.plot(
         epsilon_values,
         standard_hadamard_errors,
-        marker="x",
+        marker="D",
         linestyle="-.",
         linewidth=2.2,
         color="tab:orange",
         label="Standard HT",
     )
-    axes[1].plot(
+    ax.plot(
         epsilon_values,
         one_register_errors,
         marker="^",
@@ -263,7 +324,7 @@ def plot_amplification_effect(rows: Sequence[Dict[str, float]], output_path: Pat
         color="tab:green",
         label="Iterative non-entangled HT",
     )
-    axes[1].plot(
+    ax.plot(
         epsilon_values,
         entangle_errors,
         marker="o",
@@ -271,7 +332,7 @@ def plot_amplification_effect(rows: Sequence[Dict[str, float]], output_path: Pat
         color="tab:blue",
         label="Iterative entangled HT",
     )
-    axes[1].plot(
+    ax.plot(
         epsilon_values,
         epsilon_values,
         marker="s",
@@ -281,32 +342,25 @@ def plot_amplification_effect(rows: Sequence[Dict[str, float]], output_path: Pat
         label=r"Target accuracy",
     )
 
-    axes[0].set_xscale("log")
-    axes[0].set_yscale("log")
-    axes[0].set_ylabel("Number of measurements")
-    axes[0].set_title("Amplification effect on measurement count")
-    axes[0].grid(alpha=0.3, which="both")
-    axes[0].legend()
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlim(max(epsilon_values), min(epsilon_values))
+    ax.set_xlabel(r"Target accuracy")
+    ax.set_ylabel("Actual absolute error")
+    ax.set_title("Observed error for each Qiskit run")
+    ax.grid(alpha=0.3, which="both")
+    ax.legend()
 
-    axes[1].set_xscale("log")
-    axes[1].set_yscale("log")
-    axes[1].set_xlim(max(epsilon_values), min(epsilon_values))
-    axes[1].set_xlabel(r"Target accuracy")
-    axes[1].set_ylabel("Actual absolute error")
-    axes[1].set_title("Observed error for each Qiskit run")
-    axes[1].grid(alpha=0.3, which="both")
-    axes[1].legend()
-
-    fig.tight_layout()
-    save_figure(fig, output_path, dpi=180)
-    plt.close(fig)
+    fig_errors.tight_layout()
+    save_figure(fig_errors, error_output_path, dpi=180)
+    plt.close(fig_errors)
 
 
 def main() -> None:
     rows = run_accuracy_grid()
     print_table(rows)
     print_measurement_ratio_table(rows)
-    plot_amplification_effect(rows, OUTPUT_PATH)
+    plot_amplification_effect(rows, OUTPUT_DIR)
 
 
 if __name__ == "__main__":

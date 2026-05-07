@@ -44,7 +44,7 @@ TARGET_RMSE = 0.001
 P_TOTAL = 0.95
 GAMMA = 0.85
 OMEGA = 0.6
-M_HW = 8
+M_HW = 20
 SEED = 20260415
 OUTPUT_PATH = Path("outputs/single_run_schedule.png")
 

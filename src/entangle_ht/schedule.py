@@ -32,7 +32,7 @@ def _validate_probability(value: float, name: str) -> None:
 def max_feasible_amplification(delta_t: float, c_bias: float, rho0: float, m_hw: int) -> int:
     # Binary search for the largest m such that
     #   f_t(m, delta_t, rho0) <= c_bias,
-    # subject to m <= m_hw and the safety condition m * delta_t < 1.
+    # subject to m <= m_hw and the safety condition m * delta_t < pi/2.
     if delta_t <= 0.0:
         raise ValueError(f"delta_t must be positive, got {delta_t!r}")
     if not 0.0 < c_bias < 1.0:
@@ -41,13 +41,13 @@ def max_feasible_amplification(delta_t: float, c_bias: float, rho0: float, m_hw:
         raise ValueError(f"rho0 must lie in (0, 1], got {rho0!r}")
     if m_hw < 1:
         raise ValueError(f"m_hw must be at least 1, got {m_hw!r}")
-
+    
     if rho0 == 1.0:
         m_max = m_hw
     else:
         m_max = max(1, int(math.floor(math.log(1.0 - c_bias) / math.log(rho0))))
 
-    local_cap = int(math.ceil(1.0 / delta_t) - 1)
+    local_cap = int(math.ceil(math.pi / (2*delta_t)) - 1)
     upper = min(m_hw, m_max, local_cap)
 
     if f_t(1, delta_t, rho0) > c_bias:
@@ -83,9 +83,9 @@ def optimized_inversion_parameters(
         raise ValueError(f"delta_t must be positive, got {delta_t!r}")
     if c_stat <= 0.0:
         raise ValueError(f"c_stat must be positive, got {c_stat!r}")
-    if m_t * delta_t >= 1.0:
+    if m_t * delta_t >= (math.pi / 2):
         raise ValueError(
-            "The optimized high-probability shot rule requires m_t * Delta_t < 1."
+            "The optimized high-probability shot rule requires m_t * Delta_t < pi/2."
         )
 
     a_t = math.sin(m_t * delta_t)
@@ -133,10 +133,10 @@ def per_round_success_probability(p_total: float, num_rounds: int) -> float:
 
 
 def verify_initial_feasibility(delta_0: float, c_bias: float, rho0: float) -> None:
-    if delta_0 >= 1.0:
+    if delta_0 >= (math.pi / 2):
         raise ValueError(
             "Initial classical schedule is infeasible: Delta_0 must be less than 1 "
-            "to satisfy the safety condition m_t * Delta_t < 1 for m_t=1."
+            "to satisfy the safety condition m_t * Delta_t < pi/2 for m_t=1."
         )
     if f_t(1, delta_0, rho0) > c_bias:
         raise ValueError(
@@ -145,37 +145,14 @@ def verify_initial_feasibility(delta_0: float, c_bias: float, rho0: float) -> No
         )
 
 
-def validate_design_hyperparameters(gamma: float, omega: float, c_bias: float) -> None:
-    if not 0.0 < gamma < 1.0:
-        raise ValueError(f"gamma must lie in (0, 1), got {gamma!r}")
-    if not 0.0 < omega < 1.0:
-        raise ValueError(f"omega must lie in (0, 1), got {omega!r}")
-    if c_bias >= gamma:
-        raise ValueError(
-            "The configured gamma is too small for the computed bias budget: "
-            f"c_bias must be < gamma, got {c_bias:.6g} >= {gamma:.6g}. "
-            "Increase gamma or retune c_max/kappa."
-        )
-    c_stat = omega * gamma
-    if c_bias + c_stat > gamma:
-        omega_max = (gamma - c_bias) / gamma
-        raise ValueError(
-            "The configured gamma and omega leave too little contraction slack: "
-            f"c_bias + omega * gamma must be <= gamma, got "
-            f"{c_bias:.6g} + {c_stat:.6g} > {gamma:.6g}. "
-            f"For this configuration, choose omega <= {omega_max:.6g} "
-            "or increase gamma."
-        )
-
-
 def max_starting_amplification(delta_0: float, rho0: float, m_hw: int) -> int:
     if delta_0 <= 0.0:
         raise ValueError(f"delta_0 must be positive, got {delta_0!r}")
-    if delta_0 >= 1.0:
+    if delta_0 >= (math.pi / 2):
         raise ValueError(
-            "Initial classical schedule is infeasible: Delta_0 must be less than 1."
+            "Initial classical schedule is infeasible: Delta_0 must be less than pi/2."
         )
-    upper = min(m_hw, int(math.ceil(1.0 / delta_0)) - 1)
+    upper = min(m_hw, int(math.ceil(math.pi / (2*delta_0))) - 1)
     if upper < 1:
         raise ValueError(
             "No starting amplification satisfies the safety condition "
@@ -195,24 +172,27 @@ def max_starting_amplification(delta_0: float, rho0: float, m_hw: int) -> int:
 
 def design_algorithm_parameters(config: DemoConfig) -> AlgorithmParameters:
     m_start = max_starting_amplification(config.Delta_0, config.rho0, config.m_hw)
-    b0 = f_t(m_start, config.Delta_0, config.rho0)
-    c_bias = min(config.c_max, config.kappa * b0)
-    verify_initial_feasibility(config.Delta_0, c_bias, config.rho0)
-    gamma_star = (c_bias + math.sqrt(c_bias**2 + 8.0)) / 4.0
+    
     gamma = config.gamma
     omega = config.omega
-    validate_design_hyperparameters(gamma, omega, c_bias)
+    if not 0.0 < gamma < 1.0:
+        raise ValueError(f"gamma must lie in (0, 1), got {gamma!r}")
+    if not 0.0 < omega < 1.0:
+        raise ValueError(f"omega must lie in (0, 1), got {omega!r}")
+
     c_stat = omega * gamma
+    c_bias = (1 - omega) * gamma
+    verify_initial_feasibility(config.Delta_0, c_bias, config.rho0)
+    
     num_rounds = compute_num_rounds(config.Delta_0, config.epsilon, gamma)
     p_round = per_round_success_probability(config.p_total, num_rounds)
+    
     return AlgorithmParameters(
         m_start=m_start,
-        b0=b0,
-        c_bias=c_bias,
-        gamma_star=gamma_star,
         gamma=gamma,
         omega=omega,
         c_stat=c_stat,
+        c_bias=c_bias,
         num_rounds=num_rounds,
         p_round=p_round,
     )
