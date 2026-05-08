@@ -32,6 +32,17 @@ class AlgorithmParameters:
 
 
 @dataclass(frozen=True)
+class RoundPlan:
+    round_index: int
+    delta_bound: float
+    amplification: int
+    shots: int
+    s_star: float
+    r_star: float
+    p_round: float
+
+
+@dataclass(frozen=True)
 class RoundRecord:
     round_index: int
     theta_ref: float
@@ -45,6 +56,13 @@ class RoundRecord:
     signal_empirical: float
     clipped_signal: float
     estimate: float
+
+
+@dataclass(frozen=True)
+class TrialPlan:
+    label: str
+    total_shots: int
+    rounds: List[RoundPlan]
 
 
 @dataclass(frozen=True)

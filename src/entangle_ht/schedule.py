@@ -9,7 +9,9 @@ from .circuits import run_round, theoretical_parity_mean
 from .utilities import (
     AlgorithmParameters,
     DemoConfig,
+    RoundPlan,
     RoundRecord,
+    TrialPlan,
     TrialResult,
     phase_error,
 )
@@ -29,7 +31,12 @@ def _validate_probability(value: float, name: str) -> None:
         raise ValueError(f"{name} must lie in (0, 1), got {value!r}")
 
 
-def max_feasible_amplification(delta_t: float, c_bias: float, rho0: float, m_hw: int) -> int:
+def max_feasible_amplification(
+    delta_t: float,
+    c_bias: float,
+    rho0: float,
+    m_hw: int,
+) -> int:
     # Binary search for the largest m such that
     #   f_t(m, delta_t, rho0) <= c_bias,
     # subject to m <= m_hw and the safety condition m * delta_t < pi/2.
@@ -41,13 +48,13 @@ def max_feasible_amplification(delta_t: float, c_bias: float, rho0: float, m_hw:
         raise ValueError(f"rho0 must lie in (0, 1], got {rho0!r}")
     if m_hw < 1:
         raise ValueError(f"m_hw must be at least 1, got {m_hw!r}")
-    
+
     if rho0 == 1.0:
         m_max = m_hw
     else:
         m_max = max(1, int(math.floor(math.log(1.0 - c_bias) / math.log(rho0))))
 
-    local_cap = int(math.ceil(math.pi / (2*delta_t)) - 1)
+    local_cap = int(math.ceil(math.pi / (2 * delta_t)) - 1)
     upper = min(m_hw, m_max, local_cap)
 
     if f_t(1, delta_t, rho0) > c_bias:
@@ -58,7 +65,7 @@ def max_feasible_amplification(delta_t: float, c_bias: float, rho0: float, m_hw:
     if upper < 1:
         raise ValueError(
             "Current schedule is infeasible: the safety condition "
-            "m_t * Delta_t < 1 fails even for m_t=1."
+            "m_t * Delta_t < pi/2 fails even for m_t=1."
         )
 
     left, right = 1, upper
@@ -68,6 +75,7 @@ def max_feasible_amplification(delta_t: float, c_bias: float, rho0: float, m_hw:
             left = mid
         else:
             right = mid - 1
+
     return left
 
 
@@ -85,7 +93,8 @@ def optimized_inversion_parameters(
         raise ValueError(f"c_stat must be positive, got {c_stat!r}")
     if m_t * delta_t >= (math.pi / 2):
         raise ValueError(
-            "The optimized high-probability shot rule requires m_t * Delta_t < pi/2."
+            "The optimized high-probability shot rule requires "
+            "m_t * Delta_t < pi/2."
         )
 
     a_t = math.sin(m_t * delta_t)
@@ -93,21 +102,30 @@ def optimized_inversion_parameters(
     root = math.sqrt(max(0.0, 1.0 - a_t**2 + q_t**2))
     s_star = (a_t + q_t * root) / (1.0 + q_t**2)
     r_star = s_star - a_t
+
     if r_star <= 0.0:
         raise ValueError(
             "Optimized inversion radius is non-positive. "
             "Retune c_stat, Delta_t, or the amplification schedule."
         )
+
     return s_star, r_star
 
 
-def num_shots_for_round(m_t: int, delta_t: float, c_stat: float, p_round: float) -> int:
+def num_shots_for_round(
+    m_t: int,
+    delta_t: float,
+    c_stat: float,
+    p_round: float,
+) -> int:
     _validate_probability(p_round, "p_round")
+
     _, r_star = optimized_inversion_parameters(
         m_t=m_t,
         delta_t=delta_t,
         c_stat=c_stat,
     )
+
     return int(math.ceil((2.0 / r_star**2) * math.log(2.0 / (1.0 - p_round))))
 
 
@@ -118,26 +136,31 @@ def compute_num_rounds(delta_0: float, epsilon: float, gamma: float) -> int:
         raise ValueError(f"epsilon must be positive, got {epsilon!r}")
     if not 0.0 < gamma < 1.0:
         raise ValueError(f"gamma must lie in (0, 1), got {gamma!r}")
+
     if epsilon >= delta_0:
         return 0
+
     return int(math.ceil(math.log(delta_0 / epsilon) / math.log(1.0 / gamma)))
 
 
 def per_round_success_probability(p_total: float, num_rounds: int) -> float:
     _validate_probability(p_total, "p_total")
+
     if num_rounds < 0:
         raise ValueError(f"num_rounds cannot be negative, got {num_rounds!r}")
     if num_rounds == 0:
         return p_total
+
     return p_total ** (1.0 / num_rounds)
 
 
 def verify_initial_feasibility(delta_0: float, c_bias: float, rho0: float) -> None:
     if delta_0 >= (math.pi / 2):
         raise ValueError(
-            "Initial classical schedule is infeasible: Delta_0 must be less than 1 "
-            "to satisfy the safety condition m_t * Delta_t < pi/2 for m_t=1."
+            "Initial classical schedule is infeasible: Delta_0 must be less than "
+            "pi/2 to satisfy the safety condition m_t * Delta_t < pi/2 for m_t=1."
         )
+
     if f_t(1, delta_0, rho0) > c_bias:
         raise ValueError(
             "Initial classical schedule is infeasible: F_0(1) exceeds c_bias. "
@@ -152,41 +175,64 @@ def max_starting_amplification(delta_0: float, rho0: float, m_hw: int) -> int:
         raise ValueError(
             "Initial classical schedule is infeasible: Delta_0 must be less than pi/2."
         )
-    upper = min(m_hw, int(math.ceil(math.pi / (2*delta_0))) - 1)
+    if m_hw < 1:
+        raise ValueError(f"m_hw must be at least 1, got {m_hw!r}")
+
+    upper = min(m_hw, int(math.ceil(math.pi / (2 * delta_0))) - 1)
     if upper < 1:
         raise ValueError(
             "No starting amplification satisfies the safety condition "
-            "m_start * Delta_0 < 1."
+            "m_start * Delta_0 < pi/2."
         )
+
     feasible = None
     for candidate in range(1, upper + 1):
         if f_t(candidate, delta_0, rho0) < 1.0:
             feasible = candidate
+
     if feasible is None:
         raise ValueError(
             "No starting amplification satisfies F_0(m_start) < 1. "
             "Retune Delta_0 or rho0."
         )
+
     return feasible
 
 
 def design_algorithm_parameters(config: DemoConfig) -> AlgorithmParameters:
-    m_start = max_starting_amplification(config.Delta_0, config.rho0, config.m_hw)
-    
+    m_start = max_starting_amplification(
+        delta_0=config.Delta_0,
+        rho0=config.rho0,
+        m_hw=config.m_hw,
+    )
+
     gamma = config.gamma
     omega = config.omega
+
     if not 0.0 < gamma < 1.0:
         raise ValueError(f"gamma must lie in (0, 1), got {gamma!r}")
     if not 0.0 < omega < 1.0:
         raise ValueError(f"omega must lie in (0, 1), got {omega!r}")
 
     c_stat = omega * gamma
-    c_bias = (1 - omega) * gamma
-    verify_initial_feasibility(config.Delta_0, c_bias, config.rho0)
-    
-    num_rounds = compute_num_rounds(config.Delta_0, config.epsilon, gamma)
-    p_round = per_round_success_probability(config.p_total, num_rounds)
-    
+    c_bias = (1.0 - omega) * gamma
+
+    verify_initial_feasibility(
+        delta_0=config.Delta_0,
+        c_bias=c_bias,
+        rho0=config.rho0,
+    )
+
+    num_rounds = compute_num_rounds(
+        delta_0=config.Delta_0,
+        epsilon=config.epsilon,
+        gamma=gamma,
+    )
+    p_round = per_round_success_probability(
+        p_total=config.p_total,
+        num_rounds=num_rounds,
+    )
+
     return AlgorithmParameters(
         m_start=m_start,
         gamma=gamma,
@@ -198,17 +244,29 @@ def design_algorithm_parameters(config: DemoConfig) -> AlgorithmParameters:
     )
 
 
-def run_trial(
+# ---------------------------------------------------------------------------
+# Classical planning layer
+# ---------------------------------------------------------------------------
+
+def plan_trial(
     config: DemoConfig,
     algorithm: AlgorithmParameters,
-    simulator: Any,
-    seed: int,
     label: str,
-) -> TrialResult:
-    alpha = config.rho * np.exp(1j * config.phi_true)
-    theta_t = config.theta_0
+) -> TrialPlan:
+    """Compute the full classical schedule without running any Qiskit simulation.
+
+    This determines:
+      - delta bound for each round,
+      - amplification m_t for each round,
+      - optimized inversion parameters,
+      - shots for each round,
+      - total shots.
+
+    It does not compute theta_t, empirical signals, estimates, or final errors.
+    Those require actual simulation data and are handled by run_trial().
+    """
     delta_t = config.Delta_0
-    rounds: List[RoundRecord] = []
+    rounds: List[RoundPlan] = []
     total_shots = 0
 
     for round_index in range(algorithm.num_rounds):
@@ -224,55 +282,148 @@ def run_trial(
             delta_t=delta_t,
             c_stat=algorithm.c_stat,
         )
+
         shots = num_shots_for_round(
             m_t=m_t,
             delta_t=delta_t,
             c_stat=algorithm.c_stat,
             p_round=algorithm.p_round,
         )
-        signal_empirical = run_round(
-            m=m_t,
-            theta_ref=theta_t,
-            shots=shots,
-            alpha=alpha,
-            simulator=simulator,
-            seed=seed + 1009 * (round_index + 1),
-        )
-        clipped_signal = float(np.clip(signal_empirical, -1.0, 1.0))
-        estimate = theta_t + math.asin(clipped_signal) / m_t
+
         rounds.append(
-            RoundRecord(
+            RoundPlan(
                 round_index=round_index,
-                theta_ref=theta_t,
                 delta_bound=delta_t,
                 amplification=m_t,
                 shots=shots,
                 s_star=s_star,
                 r_star=r_star,
                 p_round=algorithm.p_round,
+            )
+        )
+
+        total_shots += shots
+        delta_t *= algorithm.gamma
+
+    return TrialPlan(
+        label=label,
+        total_shots=total_shots,
+        rounds=rounds,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Quantum execution layer
+# ---------------------------------------------------------------------------
+
+def run_trial(
+    config: DemoConfig,
+    algorithm: AlgorithmParameters,
+    simulator: Any,
+    seed: int,
+    label: str,
+    plan: TrialPlan | None = None,
+) -> TrialResult:
+    """Run the adaptive algorithm using a precomputed classical schedule.
+
+    If plan is not provided, it is computed internally. Passing plan explicitly is
+    useful when you want to reuse the same classical schedule for:
+      - shot-count plots,
+      - full Qiskit simulation,
+      - debugging,
+      - reproducibility checks.
+    """
+    if plan is None:
+        plan = plan_trial(
+            config=config,
+            algorithm=algorithm,
+            label=label,
+        )
+
+    alpha = config.rho * np.exp(1j * config.phi_true)
+    theta_t = config.theta_0
+    rounds: List[RoundRecord] = []
+
+    for round_plan in plan.rounds:
+        signal_empirical = run_round(
+            m=round_plan.amplification,
+            theta_ref=theta_t,
+            shots=round_plan.shots,
+            alpha=alpha,
+            simulator=simulator,
+            seed=seed + 1009 * (round_plan.round_index + 1),
+        )
+
+        clipped_signal = float(np.clip(signal_empirical, -1.0, 1.0))
+        estimate = theta_t + math.asin(clipped_signal) / round_plan.amplification
+
+        rounds.append(
+            RoundRecord(
+                round_index=round_plan.round_index,
+                theta_ref=theta_t,
+                delta_bound=round_plan.delta_bound,
+                amplification=round_plan.amplification,
+                shots=round_plan.shots,
+                s_star=round_plan.s_star,
+                r_star=round_plan.r_star,
+                p_round=round_plan.p_round,
                 signal_theory=theoretical_parity_mean(
                     rho=config.rho,
                     phi_true=config.phi_true,
                     theta_ref=theta_t,
-                    m=m_t,
+                    m=round_plan.amplification,
                 ),
                 signal_empirical=signal_empirical,
                 clipped_signal=clipped_signal,
                 estimate=estimate,
             )
         )
+
         theta_t = estimate
-        delta_t *= algorithm.gamma
-        total_shots += shots
 
     return TrialResult(
         label=label,
         seed=seed,
         final_estimate=theta_t,
         final_error=phase_error(theta_t, config.phi_true),
-        total_shots=total_shots,
+        total_shots=plan.total_shots,
         rounds=rounds,
     )
+
+
+def print_trial_plan_summary(
+    config: DemoConfig,
+    algorithm: AlgorithmParameters,
+    plan: TrialPlan,
+) -> None:
+    """Print the classical schedule without requiring simulation results."""
+    print("Classical adaptive entangle_ht schedule")
+    print(
+        "Setup: "
+        f"rho={config.rho}, rho0={config.rho0}, "
+        f"phi_true={config.phi_true}, theta_0={config.theta_0}, "
+        f"Delta_0={config.Delta_0}, target_RMSE={config.epsilon}, "
+        f"p_total={config.p_total}, m_hw={config.m_hw}"
+    )
+    print(
+        "Algorithm: "
+        f"gamma={algorithm.gamma:.6f}, omega={algorithm.omega:.6f}, "
+        f"c_stat={algorithm.c_stat:.6f}, c_bias={algorithm.c_bias:.6f}, "
+        f"rounds={algorithm.num_rounds}, p_round={algorithm.p_round:.8f}"
+    )
+    print()
+    print("round\tDelta_t\tm_t\tr_star\tshots")
+    for round_plan in plan.rounds:
+        print(
+            f"{round_plan.round_index}\t"
+            f"{round_plan.delta_bound:.8f}\t"
+            f"{round_plan.amplification}\t"
+            f"{round_plan.r_star:.8f}\t"
+            f"{round_plan.shots}"
+        )
+
+    print()
+    print(f"Total shots: {plan.total_shots}")
 
 
 def print_run_summary(config: DemoConfig, trial: TrialResult) -> None:

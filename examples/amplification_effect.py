@@ -2,8 +2,17 @@
 """
 Demonstrate the measurement reduction from adaptive amplification.
 
-This script runs the Qiskit circuit for several target accuracies and compares
-three different versions of Hadamard test.
+This script supports two workflows:
+
+1. Classical planning only:
+   - Computes planned shot counts, rounds, and max amplification.
+   - Does not build or run a Qiskit simulator.
+   - Useful for fast measurement-cost estimates.
+
+2. Full Qiskit simulation:
+   - Reuses the classical plans.
+   - Runs Qiskit circuits to estimate empirical errors.
+   - Useful for validating the observed accuracy behavior.
 """
 
 from __future__ import annotations
@@ -24,11 +33,14 @@ if str(SRC_ROOT) not in sys.path:
 from entangle_ht.circuits import build_simulator, run_round
 from entangle_ht.schedule import (
     design_algorithm_parameters,
+    plan_trial,
     run_trial,
 )
 from entangle_ht.utilities import DemoConfig, phase_error
 
 
+# ----------------------------------------------------------
+# For test simulation error
 BASE_CONFIG = replace(
     DemoConfig(),
     rho=0.995,
@@ -37,15 +49,34 @@ BASE_CONFIG = replace(
     theta_0=0.20,
     Delta_0=0.20,
     p_total=0.95,
-    gamma=0.85,
-    omega=0.65,
-    m_hw=20,
+    gamma=0.8,
+    omega=0.6,
+    m_hw=100,
     base_seed=20260416,
 )
-# EPSILON_GRID = (0.08, 0.06, 0.05, 0.04, 0.03, 0.02) # For quick run test
-EPSILON_GRID = (0.04, 0.02, 0.01, 0.005, 0.002, 0.001, 0.0005)
-# EPSILON_GRID = (0.04, 0.02, 0.01, 0.005, 0.0025, 0.00125, 0.000625, 0.0003125)
+# EPSILON_GRID = (0.08, 0.07, 0.06, 0.05, 0.04)  # Quick run test
+EPSILON_GRID = (0.04, 0.02, 0.01, 0.005, 0.0025, 0.00125, 0.000625, 0.0003125)
 OUTPUT_DIR = Path("outputs")
+# ----------------------------------------------------------
+
+# # ----------------------------------------------------------
+# # For test measurement plan scaling
+# BASE_CONFIG = replace(
+#     DemoConfig(),
+#     rho=0.999,
+#     rho0=0.99,
+#     phi_true=0.35,
+#     theta_0=0.20,
+#     Delta_0=0.20,
+#     p_total=0.95,
+#     gamma=0.85,
+#     omega=0.65,
+#     m_hw=100,
+#     base_seed=20260416,
+# )
+# EPSILON_GRID = (1e-2, 5e-3, 1e-3, 5e-4, 1e-4)
+# OUTPUT_DIR = Path("temp")
+# # ----------------------------------------------------------
 
 
 def configure_matplotlib_cache() -> None:
@@ -73,8 +104,16 @@ def run_standard_hadamard(
     simulator,
     seed: int,
 ) -> Dict[str, float]:
-    shots = num_shot_standard_hadamard_test(config.epsilon, config.p_total)
-    alpha = config.rho * complex(math.cos(config.phi_true), math.sin(config.phi_true))
+    shots = num_shot_standard_hadamard_test(
+        epsilon=config.epsilon,
+        p_success=config.p_total,
+    )
+
+    alpha = config.rho * complex(
+        math.cos(config.phi_true),
+        math.sin(config.phi_true),
+    )
+
     signal_empirical = run_round(
         m=1,
         theta_ref=config.theta_0,
@@ -83,6 +122,7 @@ def run_standard_hadamard(
         simulator=simulator,
         seed=seed,
     )
+
     clipped_signal = float(min(1.0, max(-1.0, signal_empirical)))
     estimate = config.theta_0 + math.asin(clipped_signal)
 
@@ -99,29 +139,113 @@ def run_standard_hadamard(
     }
 
 
-def run_accuracy_grid() -> List[Dict[str, float]]:
+# ---------------------------------------------------------------------------
+# Planning-only experiment
+# ---------------------------------------------------------------------------
+
+def plan_accuracy_grid() -> List[Dict[str, float]]:
+    """Compute measurement costs without running Qiskit simulation.
+
+    Returned rows contain only deterministic, classical planning data:
+      - shot counts,
+      - number of rounds,
+      - max amplification.
+    """
+    rows: List[Dict[str, float]] = []
+
+    for epsilon in EPSILON_GRID:
+        config = replace(BASE_CONFIG, epsilon=epsilon)
+
+        algorithm = design_algorithm_parameters(config)
+        entangled_plan = plan_trial(
+            config=config,
+            algorithm=algorithm,
+            label="entangle",
+        )
+
+        one_register_config = replace(config, m_hw=1)
+        one_register_algorithm = design_algorithm_parameters(one_register_config)
+        one_register_plan = plan_trial(
+            config=one_register_config,
+            algorithm=one_register_algorithm,
+            label="one_register",
+        )
+
+        standard_shots = num_shot_standard_hadamard_test(
+            epsilon=config.epsilon,
+            p_success=config.p_total,
+        )
+
+        max_m_used = max(
+            round_plan.amplification for round_plan in entangled_plan.rounds
+        )
+
+        rows.append(
+            {
+                "epsilon": epsilon,
+                "entangle_shots": float(entangled_plan.total_shots),
+                "one_register_shots": float(one_register_plan.total_shots),
+                "standard_hadamard_shots": float(standard_shots),
+                "max_m_used": float(max_m_used),
+                "entangle_rounds": float(algorithm.num_rounds),
+                "one_register_rounds": float(one_register_algorithm.num_rounds),
+            }
+        )
+
+    return rows
+
+
+# ---------------------------------------------------------------------------
+# Full Qiskit simulation experiment
+# ---------------------------------------------------------------------------
+
+def simulate_accuracy_grid(
+    planning_rows: Sequence[Dict[str, float]] | None = None,
+) -> List[Dict[str, float]]:
+    """Run Qiskit simulations and append empirical error data.
+
+    This function reuses the same classical schedule logic as plan_accuracy_grid().
+    The returned rows include both planning data and simulation-derived errors.
+    """
     simulator = build_simulator()
     rows: List[Dict[str, float]] = []
 
-    for index, epsilon in enumerate(EPSILON_GRID):
+    if planning_rows is None:
+        planning_rows = plan_accuracy_grid()
+
+    for index, planning_row in enumerate(planning_rows):
+        epsilon = planning_row["epsilon"]
         config = replace(BASE_CONFIG, epsilon=epsilon)
+
         algorithm = design_algorithm_parameters(config)
+        entangled_plan = plan_trial(
+            config=config,
+            algorithm=algorithm,
+            label="entangle",
+        )
         entangled_trial = run_trial(
             config=config,
             algorithm=algorithm,
             simulator=simulator,
             seed=config.base_seed + 97 * index,
             label="entangle",
+            plan=entangled_plan,
         )
 
         one_register_config = replace(config, m_hw=1)
         one_register_algorithm = design_algorithm_parameters(one_register_config)
+        one_register_plan = plan_trial(
+            config=one_register_config,
+            algorithm=one_register_algorithm,
+            label="one_register",
+        )
         one_register_trial = run_trial(
             config=one_register_config,
             algorithm=one_register_algorithm,
             simulator=simulator,
             seed=config.base_seed + 10_000 + 97 * index,
             label="one_register",
+            plan=one_register_plan,
         )
 
         standard_hadamard = run_standard_hadamard(
@@ -130,20 +254,14 @@ def run_accuracy_grid() -> List[Dict[str, float]]:
             seed=config.base_seed + 20_000 + 97 * index,
         )
 
-        max_m_used = max(round_record.amplification for round_record in entangled_trial.rounds)
         rows.append(
             {
-                "epsilon": epsilon,
-                "entangle_shots": float(entangled_trial.total_shots),
-                "one_register_shots": float(one_register_trial.total_shots),
-                "standard_hadamard_shots": standard_hadamard["shots"],
-                "max_m_used": float(max_m_used),
-                "entangle_rounds": float(algorithm.num_rounds),
-                "one_register_rounds": float(one_register_algorithm.num_rounds),
-                "entangle_estimates": entangled_trial.final_estimate,
-                "entangle_errors": abs(entangled_trial.final_error),
-                "one_register_errors": abs(one_register_trial.final_error),
-                "standard_hadamard_errors": standard_hadamard["actual_error"],
+                **planning_row,
+                "entangle_estimate": entangled_trial.final_estimate,
+                "entangle_error": abs(entangled_trial.final_error),
+                "one_register_estimate": one_register_trial.final_estimate,
+                "one_register_error": abs(one_register_trial.final_error),
+                "standard_hadamard_error": standard_hadamard["actual_error"],
                 "standard_hadamard_bias_floor": standard_hadamard["bias_floor"],
             }
         )
@@ -151,15 +269,18 @@ def run_accuracy_grid() -> List[Dict[str, float]]:
     return rows
 
 
-def print_table(rows: Sequence[Dict[str, float]]) -> None:
+# ---------------------------------------------------------------------------
+# Printing helpers
+# ---------------------------------------------------------------------------
+
+def print_planning_table(rows: Sequence[Dict[str, float]]) -> None:
     print(
         "epsilon\tIterative entangled HT shots\t"
         "Iterative non-entangled HT shots\tStandard HT shots\t"
         "max_m\tIterative entangled HT rounds\t"
-        "Iterative non-entangled HT rounds\tIterative entangled HT errors\t"
-        "Iterative non-entangled HT errors\tStandard HT errors\t"
-        "Standard HT bias floor"
+        "Iterative non-entangled HT rounds"
     )
+
     for row in rows:
         print(
             f"{row['epsilon']:.6g}\t"
@@ -168,11 +289,7 @@ def print_table(rows: Sequence[Dict[str, float]]) -> None:
             f"{int(row['standard_hadamard_shots'])}\t"
             f"{int(row['max_m_used'])}\t"
             f"{int(row['entangle_rounds'])}\t"
-            f"{int(row['one_register_rounds'])}\t"
-            f"{row['entangle_errors']:.8f}\t"
-            f"{row['one_register_errors']:.8f}\t"
-            f"{row['standard_hadamard_errors']:.8f}\t"
-            f"{row['standard_hadamard_bias_floor']:.8f}"
+            f"{int(row['one_register_rounds'])}"
         )
 
 
@@ -181,39 +298,60 @@ def print_measurement_ratio_table(rows: Sequence[Dict[str, float]]) -> None:
     print("Measurement ratios")
     print(
         "epsilon\tIterative non-entangled HT / Iterative entangled HT\t"
-        "Standard HT / Iterative entangled HT\t"
+        "Standard HT / Iterative entangled HT"
     )
+
     for row in rows:
         non_entangled_ratio = row["one_register_shots"] / row["entangle_shots"]
         standard_ratio = row["standard_hadamard_shots"] / row["entangle_shots"]
+
         print(
             f"{row['epsilon']:.6g}\t"
             f"{non_entangled_ratio:.4f}\t"
-            f"{standard_ratio:.4f}\t"
+            f"{standard_ratio:.4f}"
         )
 
 
-def plot_amplification_effect(rows: Sequence[Dict[str, float]], output_dir: Path) -> None:
+def print_error_table(rows: Sequence[Dict[str, float]]) -> None:
+    print()
+    print("Simulation errors")
+    print(
+        "epsilon\tIterative entangled HT error\t"
+        "Iterative non-entangled HT error\tStandard HT error\t"
+        "Standard HT bias floor"
+    )
+
+    for row in rows:
+        print(
+            f"{row['epsilon']:.6g}\t"
+            f"{row['entangle_error']:.8f}\t"
+            f"{row['one_register_error']:.8f}\t"
+            f"{row['standard_hadamard_error']:.8f}\t"
+            f"{row['standard_hadamard_bias_floor']:.8f}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Plotting helpers
+# ---------------------------------------------------------------------------
+
+def plot_measurement_counts(
+    rows: Sequence[Dict[str, float]],
+    output_dir: Path,
+) -> None:
+    """Plot planned measurement counts.
+
+    This plot only needs classical planning rows. It does not require Qiskit
+    simulation results.
+    """
     configure_matplotlib_cache()
     import matplotlib.pyplot as plt
-
-    output_dir.parent.mkdir(parents=True, exist_ok=True)
 
     epsilon_values = [row["epsilon"] for row in rows]
     entangle_shots = [row["entangle_shots"] for row in rows]
     one_register_shots = [row["one_register_shots"] for row in rows]
     standard_shots = [row["standard_hadamard_shots"] for row in rows]
 
-    entangle_errors = [max(row["entangle_errors"], 1e-16) for row in rows]
-    one_register_errors = [max(row["one_register_errors"], 1e-16) for row in rows]
-    standard_hadamard_errors = [
-        max(row["standard_hadamard_errors"], 1e-16) for row in rows
-    ]
-
-    measurement_output_path = output_dir / "amplification_demo_shots.png"
-    error_output_path = output_dir / "amplification_demo_errors.png"
-
-    # Ratios relative to iterative entangled HT
     non_entangled_ratios = [
         row["one_register_shots"] / row["entangle_shots"] for row in rows
     ]
@@ -221,10 +359,7 @@ def plot_amplification_effect(rows: Sequence[Dict[str, float]], output_dir: Path
         row["standard_hadamard_shots"] / row["entangle_shots"] for row in rows
     ]
 
-    # -------------------------------------------------------------------------
-    # Figure 1: measurement count
-    # -------------------------------------------------------------------------
-    fig_measurements, ax = plt.subplots(figsize=(8, 5))
+    fig, ax = plt.subplots(figsize=(8, 5))
 
     ax.plot(
         epsilon_values,
@@ -253,7 +388,7 @@ def plot_amplification_effect(rows: Sequence[Dict[str, float]], output_dir: Path
         label="Iterative entangled HT",
     )
 
-    # Annotate max(m_t) on entangled curve
+    # Annotate max(m_t) on entangled curve.
     for row in rows:
         ax.annotate(
             f"max(m_t)={int(row['max_m_used'])}",
@@ -265,8 +400,12 @@ def plot_amplification_effect(rows: Sequence[Dict[str, float]], output_dir: Path
             color="tab:blue",
         )
 
-    # Annotate ratios on the two higher-shot methods
-    for eps, shots, ratio in zip(epsilon_values, one_register_shots, non_entangled_ratios):
+    # Annotate ratios on the two higher-shot methods.
+    for eps, shots, ratio in zip(
+        epsilon_values,
+        one_register_shots,
+        non_entangled_ratios,
+    ):
         ax.annotate(
             f"{ratio:.2f}x",
             xy=(eps, shots),
@@ -277,7 +416,11 @@ def plot_amplification_effect(rows: Sequence[Dict[str, float]], output_dir: Path
             color="tab:green",
         )
 
-    for eps, shots, ratio in zip(epsilon_values, standard_shots, standard_ratios):
+    for eps, shots, ratio in zip(
+        epsilon_values,
+        standard_shots,
+        standard_ratios,
+    ):
         ax.annotate(
             f"{ratio:.2f}x",
             xy=(eps, shots),
@@ -293,22 +436,39 @@ def plot_amplification_effect(rows: Sequence[Dict[str, float]], output_dir: Path
     ax.set_xlim(max(epsilon_values), min(epsilon_values))
     ax.set_xlabel(r"Target accuracy")
     ax.set_ylabel("Number of measurements")
-    ax.set_title("Amplification effect on measurement count")
+    ax.set_title("Planned measurement count")
     ax.grid(alpha=0.3, which="both")
     ax.legend()
 
-    fig_measurements.tight_layout()
-    save_figure(fig_measurements, measurement_output_path, dpi=180)
-    plt.close(fig_measurements)
+    fig.tight_layout()
+    save_figure(fig, output_dir / "amplification_demo_shots.png", dpi=180)
+    plt.close(fig)
 
-    # -------------------------------------------------------------------------
-    # Figure 2: observed error
-    # -------------------------------------------------------------------------
-    fig_errors, ax = plt.subplots(figsize=(8, 5))
+
+def plot_error_comparison(
+    rows: Sequence[Dict[str, float]],
+    output_dir: Path,
+) -> None:
+    """Plot empirical errors from Qiskit simulation.
+
+    This plot requires simulation rows produced by simulate_accuracy_grid().
+    """
+    configure_matplotlib_cache()
+    import matplotlib.pyplot as plt
+
+    epsilon_values = [row["epsilon"] for row in rows]
+
+    entangle_errors = [max(row["entangle_error"], 1e-16) for row in rows]
+    one_register_errors = [max(row["one_register_error"], 1e-16) for row in rows]
+    standard_errors = [
+        max(row["standard_hadamard_error"], 1e-16) for row in rows
+    ]
+
+    fig, ax = plt.subplots(figsize=(8, 5))
 
     ax.plot(
         epsilon_values,
-        standard_hadamard_errors,
+        standard_errors,
         marker="D",
         linestyle="-.",
         linewidth=2.2,
@@ -347,20 +507,50 @@ def plot_amplification_effect(rows: Sequence[Dict[str, float]], output_dir: Path
     ax.set_xlim(max(epsilon_values), min(epsilon_values))
     ax.set_xlabel(r"Target accuracy")
     ax.set_ylabel("Actual absolute error")
-    ax.set_title("Observed error for each Qiskit run")
+    ax.set_title("Observed error from Qiskit simulation")
     ax.grid(alpha=0.3, which="both")
     ax.legend()
 
-    fig_errors.tight_layout()
-    save_figure(fig_errors, error_output_path, dpi=180)
-    plt.close(fig_errors)
+    fig.tight_layout()
+    save_figure(fig, output_dir / "amplification_demo_errors.png", dpi=180)
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# Main entry points
+# ---------------------------------------------------------------------------
+
+def main_planning_only() -> None:
+    """Fast mode: only compute and plot planned measurement counts."""
+    planning_rows = plan_accuracy_grid()
+
+    print_planning_table(planning_rows)
+    print_measurement_ratio_table(planning_rows)
+    plot_measurement_counts(planning_rows, OUTPUT_DIR)
+
+
+def main_full_simulation() -> None:
+    """Full mode: compute planned counts, then run Qiskit simulations."""
+    planning_rows = plan_accuracy_grid()
+
+    print_planning_table(planning_rows)
+    print_measurement_ratio_table(planning_rows)
+    plot_measurement_counts(planning_rows, OUTPUT_DIR)
+
+    simulation_rows = simulate_accuracy_grid(planning_rows)
+
+    print_error_table(simulation_rows)
+    plot_error_comparison(simulation_rows, OUTPUT_DIR)
 
 
 def main() -> None:
-    rows = run_accuracy_grid()
-    print_table(rows)
-    print_measurement_ratio_table(rows)
-    plot_amplification_effect(rows, OUTPUT_DIR)
+    # Choose one of the two modes:
+    #
+    # 1. Fast planning-only mode:
+    # main_planning_only()
+    #
+    # 2. Full simulation mode:
+    main_full_simulation()
 
 
 if __name__ == "__main__":
