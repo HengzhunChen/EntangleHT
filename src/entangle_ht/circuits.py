@@ -6,6 +6,23 @@ from typing import Any, Dict
 import numpy as np
 
 
+# ---------------------------------------------------------------------------
+# Simulator
+# ---------------------------------------------------------------------------
+
+def build_simulator(method: str = "statevector") -> Any:
+    from qiskit_aer import AerSimulator
+
+    return AerSimulator(
+        method=method,
+        max_parallel_threads=0, # 0 lets Aer choose automatically
+    )
+
+
+# ---------------------------------------------------------------------------
+# Effective one-qubit model
+# ---------------------------------------------------------------------------
+#
 # Demo circuit model:
 # - Each system register is a single qubit initialized in |0>.
 # - We choose a simple effective 1-qubit unitary U so that <0|U|0> = alpha,
@@ -18,11 +35,6 @@ import numpy as np
 # - For amplification m, the circuit uses m ancilla qubits prepared in a GHZ
 #   state and m system qubits prepared in |0>^{\otimes m}. Each ancilla then
 #   controls one copy of the effective U on one system qubit.
-
-def build_simulator() -> Any:
-    from qiskit_aer import AerSimulator
-    return AerSimulator()
-
 
 def build_effective_u(alpha: complex) -> np.ndarray:
     alpha_abs = abs(alpha)
@@ -84,10 +96,12 @@ def build_sine_ghz_circuit(m: int, theta_ref: float, alpha: complex) -> Any:
     ancillas = list(range(m))
     systems = list(range(m, 2 * m))
 
+    # Prepare GHZ state on the ancilla register.
     circuit.h(ancillas[0])
     for qubit in ancillas[1:]:
         circuit.cx(ancillas[0], qubit)
 
+    # Apply controlled effective-U copies.
     theta_u, phase_u = effective_u_parameters(alpha)
     for ancilla, system in zip(ancillas, systems):
         circuit.cu(theta_u, -phase_u, -phase_u, phase_u, ancilla, system)
@@ -105,23 +119,50 @@ def build_sine_ghz_circuit(m: int, theta_ref: float, alpha: complex) -> Any:
     return circuit
 
 
-def run_round(
+# ---------------------------------------------------------------------------
+# Compilation
+# ---------------------------------------------------------------------------
+
+def build_compiled_sine_ghz_circuit(
     m: int,
     theta_ref: float,
-    shots: int,
     alpha: complex,
     simulator: Any,
     seed: int,
-) -> float:
+) -> Any:
     from qiskit import transpile
 
-    circuit = build_sine_ghz_circuit(m=m, theta_ref=theta_ref, alpha=alpha)
+    circuit = build_sine_ghz_circuit(
+        m=m,
+        theta_ref=theta_ref,
+        alpha=alpha,
+    )
+
     compiled = transpile(
         circuit,
         simulator,
         optimization_level=1,
         seed_transpiler=seed,
     )
-    result = simulator.run(compiled, shots=shots, seed_simulator=seed).result()
+
+    return compiled
+
+
+# ---------------------------------------------------------------------------
+# Execution
+# ---------------------------------------------------------------------------
+
+def run_round(
+    compiled_circuit: Any,
+    shots: int,
+    simulator: Any,
+    seed: int,
+) -> float:
+    result = simulator.run(
+        compiled_circuit,
+        shots=shots,
+        seed_simulator=seed,
+    ).result()
+
     counts = result.get_counts()
     return parity_mean_from_counts(counts)

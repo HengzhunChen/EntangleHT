@@ -75,6 +75,11 @@ class TrialResult:
     rounds: List[RoundRecord]
 
 
+def validate_probability(value: float, name: str) -> None:
+    if not 0.0 < value < 1.0:
+        raise ValueError(f"{name} must lie in (0, 1), got {value!r}")
+
+
 def wrap_phase(angle: float) -> float:
     return math.atan2(math.sin(angle), math.cos(angle))
 

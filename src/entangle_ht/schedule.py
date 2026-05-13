@@ -5,7 +5,11 @@ from typing import Any, List
 
 import numpy as np
 
-from .circuits import run_round, theoretical_parity_mean
+from .circuits import (
+    build_compiled_sine_ghz_circuit, 
+    run_round, 
+    theoretical_parity_mean,
+)
 from .utilities import (
     AlgorithmParameters,
     DemoConfig,
@@ -14,21 +18,21 @@ from .utilities import (
     TrialPlan,
     TrialResult,
     phase_error,
+    validate_probability,
 )
 
 
-def f_t(m: int, delta_t: float, rho0: float) -> float:
+# ----------------------------------------------------------------------------
+# Maximal feasible amplification
+# ----------------------------------------------------------------------------
+
+def bias_contraction_bound(m: int, delta_t: float, rho0: float) -> float:
     angle = m * delta_t
     if angle <= 0.0:
         return 0.0
     if angle >= math.pi / 2:
         return math.inf
     return (1.0 - rho0**m) * math.tan(angle) / angle
-
-
-def _validate_probability(value: float, name: str) -> None:
-    if not 0.0 < value < 1.0:
-        raise ValueError(f"{name} must lie in (0, 1), got {value!r}")
 
 
 def max_feasible_amplification(
@@ -38,7 +42,7 @@ def max_feasible_amplification(
     m_hw: int,
 ) -> int:
     # Binary search for the largest m such that
-    #   f_t(m, delta_t, rho0) <= c_bias,
+    #   bias_contraction_bound(m, delta_t, rho0) <= c_bias,
     # subject to m <= m_hw and the safety condition m * delta_t < pi/2.
     if delta_t <= 0.0:
         raise ValueError(f"delta_t must be positive, got {delta_t!r}")
@@ -57,9 +61,9 @@ def max_feasible_amplification(
     local_cap = int(math.ceil(math.pi / (2 * delta_t)) - 1)
     upper = min(m_hw, m_max, local_cap)
 
-    if f_t(1, delta_t, rho0) > c_bias:
+    if bias_contraction_bound(1, delta_t, rho0) > c_bias:
         raise ValueError(
-            "Current schedule is infeasible: F_t(1) exceeds c_bias. "
+            "Current schedule is infeasible: bias_contraction_bound(1) exceeds c_bias. "
             "Retune the design parameters before running the algorithm."
         )
     if upper < 1:
@@ -71,13 +75,17 @@ def max_feasible_amplification(
     left, right = 1, upper
     while left < right:
         mid = (left + right + 1) // 2
-        if f_t(mid, delta_t, rho0) <= c_bias:
+        if bias_contraction_bound(mid, delta_t, rho0) <= c_bias:
             left = mid
         else:
             right = mid - 1
 
     return left
 
+
+# ----------------------------------------------------------------------------
+# Optimized inversion threshold
+# ----------------------------------------------------------------------------
 
 def optimized_inversion_parameters(
     m_t: int,
@@ -112,13 +120,17 @@ def optimized_inversion_parameters(
     return s_star, r_star
 
 
+# ----------------------------------------------------------------------------
+# Shot count calculation
+# ----------------------------------------------------------------------------
+
 def num_shots_for_round(
     m_t: int,
     delta_t: float,
     c_stat: float,
     p_round: float,
 ) -> int:
-    _validate_probability(p_round, "p_round")
+    validate_probability(p_round, "p_round")
 
     _, r_star = optimized_inversion_parameters(
         m_t=m_t,
@@ -144,15 +156,13 @@ def compute_num_rounds(delta_0: float, epsilon: float, gamma: float) -> int:
 
 
 def per_round_success_probability(p_total: float, num_rounds: int) -> float:
-    _validate_probability(p_total, "p_total")
-
-    if num_rounds < 0:
-        raise ValueError(f"num_rounds cannot be negative, got {num_rounds!r}")
-    if num_rounds == 0:
-        return p_total
-
+    validate_probability(p_total, "p_total")
     return p_total ** (1.0 / num_rounds)
 
+
+# ---------------------------------------------------------------------------
+# Initial checks
+# ---------------------------------------------------------------------------
 
 def verify_initial_feasibility(delta_0: float, c_bias: float, rho0: float) -> None:
     if delta_0 >= (math.pi / 2):
@@ -161,7 +171,7 @@ def verify_initial_feasibility(delta_0: float, c_bias: float, rho0: float) -> No
             "pi/2 to satisfy the safety condition m_t * Delta_t < pi/2 for m_t=1."
         )
 
-    if f_t(1, delta_0, rho0) > c_bias:
+    if bias_contraction_bound(1, delta_0, rho0) > c_bias:
         raise ValueError(
             "Initial classical schedule is infeasible: F_0(1) exceeds c_bias. "
             "Retune the design parameters before running the algorithm."
@@ -187,7 +197,7 @@ def max_starting_amplification(delta_0: float, rho0: float, m_hw: int) -> int:
 
     feasible = None
     for candidate in range(1, upper + 1):
-        if f_t(candidate, delta_0, rho0) < 1.0:
+        if bias_contraction_bound(candidate, delta_0, rho0) < 1.0:
             feasible = candidate
 
     if feasible is None:
@@ -198,6 +208,10 @@ def max_starting_amplification(delta_0: float, rho0: float, m_hw: int) -> int:
 
     return feasible
 
+
+# ---------------------------------------------------------------------------
+# Parameters setup
+# ---------------------------------------------------------------------------
 
 def design_algorithm_parameters(config: DemoConfig) -> AlgorithmParameters:
     m_start = max_starting_amplification(
@@ -345,13 +359,20 @@ def run_trial(
     rounds: List[RoundRecord] = []
 
     for round_plan in plan.rounds:
-        signal_empirical = run_round(
+        round_seed = seed + 1009 * (round_plan.round_index + 1)
+
+        compiled_circuit = build_compiled_sine_ghz_circuit(
             m=round_plan.amplification,
             theta_ref=theta_t,
-            shots=round_plan.shots,
             alpha=alpha,
             simulator=simulator,
-            seed=seed + 1009 * (round_plan.round_index + 1),
+            seed=round_seed,
+        )
+        signal_empirical = run_round(
+            compiled_circuit=compiled_circuit,
+            shots=round_plan.shots,
+            simulator=simulator,
+            seed=round_seed,
         )
 
         clipped_signal = float(np.clip(signal_empirical, -1.0, 1.0))
@@ -390,6 +411,10 @@ def run_trial(
         rounds=rounds,
     )
 
+
+# ---------------------------------------------------------------------------
+# Print helper functions
+# ---------------------------------------------------------------------------
 
 def print_trial_plan_summary(
     config: DemoConfig,

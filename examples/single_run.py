@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import os
 import sys
+import time
 from dataclasses import replace
 from pathlib import Path
 
@@ -35,15 +36,15 @@ from entangle_ht.utilities import (
 )
 
 
-RHO = 0.99
-RHO0 = 0.95
+RHO = 0.995
+RHO0 = 0.98
 PHI_TRUE = 0.35
 THETA_0 = 0.20
 DELTA_0 = 0.20
-TARGET_RMSE = 0.001
+TARGET_RMSE = 0.0001
 P_TOTAL = 0.95
 GAMMA = 0.85
-OMEGA = 0.6
+OMEGA = 0.65
 M_HW = 100
 SEED = 20260415
 OUTPUT_PATH = Path("outputs/single_run_schedule.png")
@@ -149,6 +150,7 @@ def plot_schedule_example(
 
 
 def run_example() -> None:
+    time_start = time.time()
     config = build_example_config()
     simulator = build_simulator()
     algorithm = design_algorithm_parameters(config)
@@ -159,6 +161,9 @@ def run_example() -> None:
         seed=config.base_seed,
         label="adaptive",
     )
+    time_end = time.time()
+    print(f"Trial completed in {time_end - time_start:.2f} seconds.")
+    
     print_run_summary(config, trial)
     plot_schedule_example(
         config=config,
