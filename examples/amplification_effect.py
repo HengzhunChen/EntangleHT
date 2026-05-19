@@ -43,44 +43,44 @@ from entangle_ht.schedule import (
 from entangle_ht.utilities import DemoConfig, phase_error
 
 
-# ----------------------------------------------------------
-# For test simulation error
-BASE_CONFIG = replace(
-    DemoConfig(),
-    rho=0.995,
-    rho0=0.97,
-    phi_true=0.35,
-    theta_0=0.20,
-    Delta_0=0.20,
-    p_total=0.95,
-    gamma=0.8,
-    omega=0.6,
-    m_hw=100,
-    base_seed=20260416,
-)
-# EPSILON_GRID = (0.08, 0.07, 0.06, 0.05, 0.04)  # Quick run test
-EPSILON_GRID = (0.04, 0.02, 0.01, 0.005, 0.0025, 0.00125, 0.000625, 0.0003125)
-OUTPUT_DIR = Path("outputs")
-# ----------------------------------------------------------
-
 # # ----------------------------------------------------------
-# # For test measurement plan scaling
+# # For test simulation error
 # BASE_CONFIG = replace(
 #     DemoConfig(),
-#     rho=0.999,
-#     rho0=0.99,
+#     rho=0.995,
+#     rho0=0.97,
 #     phi_true=0.35,
 #     theta_0=0.20,
 #     Delta_0=0.20,
 #     p_total=0.95,
-#     gamma=0.85,
-#     omega=0.65,
+#     gamma=0.8,
+#     omega=0.6,
 #     m_hw=100,
 #     base_seed=20260416,
 # )
-# EPSILON_GRID = (1e-2, 5e-3, 1e-3, 5e-4, 1e-4)
-# OUTPUT_DIR = Path("temp")
+# # EPSILON_GRID = (0.08, 0.07, 0.06, 0.05, 0.04)  # Quick run test
+# EPSILON_GRID = (0.04, 0.02, 0.01, 0.005, 0.0025, 0.00125, 0.000625, 0.0003125)
+# OUTPUT_DIR = Path("outputs")
 # # ----------------------------------------------------------
+
+# ----------------------------------------------------------
+# For test measurement plan scaling
+BASE_CONFIG = replace(
+    DemoConfig(),
+    rho=0.999999,
+    rho0=0.9999,
+    phi_true=0.35,
+    theta_0=0.20,
+    Delta_0=0.20,
+    p_total=0.95,
+    gamma=0.6,
+    omega=0.6,
+    m_hw=100,
+    base_seed=20260416,
+)
+EPSILON_GRID = (1e-2, 5e-3, 1e-3, 5e-4, 1e-4, 1e-5, 1e-6)
+OUTPUT_DIR = Path("temp")
+# ----------------------------------------------------------
 
 
 def configure_matplotlib_cache() -> None:
@@ -463,6 +463,123 @@ def plot_measurement_counts(
     plt.close(fig)
 
 
+def plot_round_shots_by_epsilon(
+    plan_records: Dict[float, Dict[str, object]],
+    output_dir: Path,
+) -> None:
+    """Plot per-round shot counts for each target accuracy.
+
+    A heatmap is easier to read than many overlaid curves because schedules for
+    nearby epsilon values often share the same early-round shot counts.
+    """
+    configure_matplotlib_cache()
+    import matplotlib.pyplot as plt
+    import numpy as np
+
+    epsilon_values = sorted(plan_records.keys(), reverse=True)
+    max_rounds = max(
+        (
+            len(plan_records[epsilon]["entangled_plan"].rounds)
+            for epsilon in epsilon_values
+        ),
+        default=0,
+    )
+
+    if max_rounds == 0:
+        fig, ax = plt.subplots(figsize=(8, 3))
+        ax.axis("off")
+        ax.text(
+            0.5,
+            0.5,
+            "No shots are required for the configured epsilon grid.",
+            ha="center",
+            va="center",
+        )
+        fig.tight_layout()
+        save_figure(fig, output_dir / "amplification_demo_round_shots.png", dpi=180)
+        plt.close(fig)
+        return
+
+    shot_grid = np.full((len(epsilon_values), max_rounds), np.nan)
+    amplification_grid: List[List[int | None]] = [
+        [None for _ in range(max_rounds)] for _ in epsilon_values
+    ]
+    shot_label_grid: List[List[str | None]] = [
+        [None for _ in range(max_rounds)] for _ in epsilon_values
+    ]
+
+    def format_shots(shots: int) -> str:
+        if shots >= 1_000_000_000_000:
+            return f"{shots / 1_000_000_000_000:.1f}T"
+        if shots >= 1_000_000_000:
+            return f"{shots / 1_000_000_000:.1f}B"
+        if shots >= 1_000_000:
+            return f"{shots / 1_000_000:.1f}M"
+        if shots >= 1_000:
+            return f"{shots / 1_000:.1f}k"
+        return str(shots)
+
+    for row_index, epsilon in enumerate(epsilon_values):
+        rounds = plan_records[epsilon]["entangled_plan"].rounds
+        for round_plan in rounds:
+            col_index = round_plan.round_index
+            shot_grid[row_index, col_index] = math.log10(round_plan.shots)
+            amplification_grid[row_index][col_index] = round_plan.amplification
+            shot_label_grid[row_index][col_index] = format_shots(round_plan.shots)
+
+    masked_shot_grid = np.ma.masked_invalid(shot_grid)
+    cmap = plt.get_cmap("viridis").copy()
+    cmap.set_bad(color="#f2f2f2")
+
+    fig_width = max(8, 0.45 * max_rounds + 3.5)
+    fig_height = max(4, 0.45 * len(epsilon_values) + 2.0)
+    fig, ax = plt.subplots(figsize=(fig_width, fig_height))
+
+    image = ax.imshow(
+        masked_shot_grid,
+        aspect="auto",
+        interpolation="nearest",
+        cmap=cmap,
+    )
+
+    def text_color_for_cell(value: float) -> str:
+        r, g, b, _ = cmap(image.norm(value))
+        luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b
+        return "black" if luminance > 0.5 else "white"
+
+    for row_index, epsilon in enumerate(epsilon_values):
+        for col_index in range(max_rounds):
+            amplification = amplification_grid[row_index][col_index]
+            shot_label = shot_label_grid[row_index][col_index]
+            if amplification is None:
+                continue
+            ax.text(
+                col_index,
+                row_index,
+                f"{shot_label}\nm={amplification}",
+                ha="center",
+                va="center",
+                fontsize=6.5,
+                color=text_color_for_cell(shot_grid[row_index, col_index]),
+            )
+
+    ax.set_xticks(range(max_rounds))
+    ax.set_xticklabels(range(max_rounds))
+    ax.set_yticks(range(len(epsilon_values)))
+    ax.set_yticklabels([f"{epsilon:.1e}" for epsilon in epsilon_values])
+    ax.set_xlabel("Planned round")
+    ax.set_ylabel(r"Target accuracy")
+    ax.set_title("Per-round planned shots for entangled HT")
+    ax.grid(False)
+
+    colorbar = fig.colorbar(image, ax=ax)
+    colorbar.set_label(r"$\log_{10}(\mathrm{shots})$")
+
+    fig.tight_layout()
+    save_figure(fig, output_dir / "amplification_demo_round_shots.png", dpi=180)
+    plt.close(fig)
+
+
 def plot_error_comparison(
     simulation_data: Sequence[Dict[str, float]],
     output_dir: Path,
@@ -540,11 +657,12 @@ def plot_error_comparison(
 
 def main_planning_only() -> None:
     """Fast mode: only compute and plot planned measurement counts."""
-    plan_data, _ = plan_accuracy_grid()
+    plan_data, plan_records = plan_accuracy_grid()
 
     print_planning_table(plan_data)
     print_measurement_ratio_table(plan_data)
     plot_measurement_counts(plan_data, OUTPUT_DIR)
+    plot_round_shots_by_epsilon(plan_records, OUTPUT_DIR)
 
 
 def main_full_simulation() -> None:
@@ -554,6 +672,7 @@ def main_full_simulation() -> None:
     print_planning_table(plan_data)
     print_measurement_ratio_table(plan_data)
     plot_measurement_counts(plan_data, OUTPUT_DIR)
+    plot_round_shots_by_epsilon(plan_records, OUTPUT_DIR)
 
     simulation_data = simulate_accuracy_grid(plan_data, plan_records)
 
@@ -565,10 +684,10 @@ def main() -> None:
     # Choose one of the two modes:
     #
     # 1. Fast planning-only mode:
-    # main_planning_only()
+    main_planning_only()
     #
     # 2. Full simulation mode:
-    main_full_simulation()
+    # main_full_simulation()
 
 
 if __name__ == "__main__":

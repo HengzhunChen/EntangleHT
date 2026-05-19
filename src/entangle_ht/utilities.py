@@ -22,7 +22,6 @@ class DemoConfig:
 
 @dataclass(frozen=True)
 class AlgorithmParameters:
-    m_start: int
     gamma: float
     omega: float
     c_stat: float
@@ -37,7 +36,6 @@ class RoundPlan:
     delta_bound: float
     amplification: int
     shots: int
-    s_star: float
     r_star: float
     p_round: float
 
@@ -49,10 +47,8 @@ class RoundRecord:
     delta_bound: float
     amplification: int
     shots: int
-    s_star: float
     r_star: float
     p_round: float
-    signal_theory: float
     signal_empirical: float
     clipped_signal: float
     estimate: float

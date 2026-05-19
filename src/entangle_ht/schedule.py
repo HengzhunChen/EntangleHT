@@ -8,7 +8,6 @@ import numpy as np
 from .circuits import (
     build_compiled_sine_ghz_circuit, 
     run_round, 
-    theoretical_parity_mean,
 )
 from .utilities import (
     AlgorithmParameters,
@@ -23,82 +22,107 @@ from .utilities import (
 
 
 # ----------------------------------------------------------------------------
-# Maximal feasible amplification
+# Shot-optimized amplification
 # ----------------------------------------------------------------------------
 
-def bias_contraction_bound(m: int, delta_t: float, rho0: float) -> float:
-    angle = m * delta_t
-    if angle <= 0.0:
-        return 0.0
-    if angle >= math.pi / 2:
-        return math.inf
-    return (1.0 - rho0**m) * math.tan(angle) / angle
-
-
-def max_feasible_amplification(
-    delta_t: float,
-    c_bias: float,
-    rho0: float,
-    m_hw: int,
-) -> int:
-    # Binary search for the largest m such that
-    #   bias_contraction_bound(m, delta_t, rho0) <= c_bias,
-    # subject to m <= m_hw and the safety condition m * delta_t < pi/2.
+def contrast_bias_bound(m: int, delta_t: float, rho0: float) -> float:
+    """Certified bias bound B(m; Delta_t, rho0)"""
+    if m < 1:
+        raise ValueError(f"m must be at least 1, got {m!r}")
     if delta_t <= 0.0:
         raise ValueError(f"delta_t must be positive, got {delta_t!r}")
-    if not 0.0 < c_bias < 1.0:
-        raise ValueError(f"c_bias must lie in (0, 1), got {c_bias!r}")
+    if not 0.0 < rho0 <= 1.0:
+        raise ValueError(f"rho0 must lie in (0, 1], got {rho0!r}")
+
+    angle = m * delta_t
+    if angle >= math.pi / 2:
+        return math.inf
+
+    return ((1.0 - rho0**m) / m) * math.tan(angle)
+
+
+def shot_optimized_amplification(
+    delta_t: float,
+    epsilon_stat: float,
+    epsilon_bias: float,
+    rho0: float,
+    m_hw: int,
+) -> tuple[int, float]:
+    """Choose the feasible amplification with the largest statistical radius.
+
+    This implements only for the iterative algorithm, where
+    ``epsilon_stat`` is the constant budget c_stat * Delta_t.
+    """
+    if delta_t <= 0.0:
+        raise ValueError(f"delta_t must be positive, got {delta_t!r}")
+    if epsilon_bias <= 0.0:
+        raise ValueError(f"epsilon_bias must be positive, got {epsilon_bias!r}")
     if not 0.0 < rho0 <= 1.0:
         raise ValueError(f"rho0 must lie in (0, 1], got {rho0!r}")
     if m_hw < 1:
         raise ValueError(f"m_hw must be at least 1, got {m_hw!r}")
 
-    if rho0 == 1.0:
-        m_max = m_hw
+    # necessary condition for feasibility
+    if rho0 == 1.0 or epsilon_bias >= delta_t:
+        m_nec = m_hw
     else:
-        m_max = max(1, int(math.floor(math.log(1.0 - c_bias) / math.log(rho0))))
+        m_nec = int(math.floor(math.log(1.0 - epsilon_bias / delta_t) / math.log(rho0)))
 
     local_cap = int(math.ceil(math.pi / (2 * delta_t)) - 1)
-    upper = min(m_hw, m_max, local_cap)
+    search_cap = min(m_hw, m_nec, local_cap)
 
-    if bias_contraction_bound(1, delta_t, rho0) > c_bias:
+    if contrast_bias_bound(1, delta_t, rho0) > epsilon_bias:
         raise ValueError(
-            "Current schedule is infeasible: bias_contraction_bound(1) exceeds c_bias. "
+            "Current schedule is infeasible: B(1; Delta_t, rho0) exceeds epsilon_bias. "
             "Retune the design parameters before running the algorithm."
         )
-    if upper < 1:
+    if search_cap < 1:
         raise ValueError(
             "Current schedule is infeasible: the safety condition "
             "m_t * Delta_t < pi/2 fails even for m_t=1."
         )
 
-    left, right = 1, upper
+    left, right = 1, search_cap
     while left < right:
         mid = (left + right + 1) // 2
-        if bias_contraction_bound(mid, delta_t, rho0) <= c_bias:
+        if contrast_bias_bound(mid, delta_t, rho0) <= epsilon_bias:
             left = mid
         else:
             right = mid - 1
 
-    return left
+    max_feasible = left
+
+    m_best = 1
+    r_best = -math.inf
+    for candidate in range(1, max_feasible + 1):
+        r_star = optimized_inversion_radius(
+            m_t=candidate,
+            delta_t=delta_t,
+            epsilon_stat=epsilon_stat,
+        )
+        if r_star > r_best:
+            m_best = candidate
+            r_best = r_star
+
+    return m_best, r_best
 
 
 # ----------------------------------------------------------------------------
-# Optimized inversion threshold
+# Optimized inversion radius
 # ----------------------------------------------------------------------------
 
-def optimized_inversion_parameters(
+def optimized_inversion_radius(
     m_t: int,
     delta_t: float,
-    c_stat: float,
-) -> tuple[float, float]:
-    """Return the optimized (s_t^*, r_t^*) from the high-probability bound."""
+    epsilon_stat: float,
+) -> float:
+    """Return the optimized r_t^* from the high-probability bound."""
     if m_t < 1:
         raise ValueError(f"m_t must be at least 1, got {m_t!r}")
     if delta_t <= 0.0:
         raise ValueError(f"delta_t must be positive, got {delta_t!r}")
-    if c_stat <= 0.0:
-        raise ValueError(f"c_stat must be positive, got {c_stat!r}")
+    if epsilon_stat <= 0.0:
+        raise ValueError(f"epsilon_stat must be positive, got {epsilon_stat!r}")
     if m_t * delta_t >= (math.pi / 2):
         raise ValueError(
             "The optimized high-probability shot rule requires "
@@ -106,10 +130,9 @@ def optimized_inversion_parameters(
         )
 
     a_t = math.sin(m_t * delta_t)
-    q_t = m_t * c_stat * delta_t
+    q_t = m_t * epsilon_stat
     root = math.sqrt(max(0.0, 1.0 - a_t**2 + q_t**2))
-    s_star = (a_t + q_t * root) / (1.0 + q_t**2)
-    r_star = s_star - a_t
+    r_star = (a_t + q_t * root) / (1.0 + q_t**2) - a_t
 
     if r_star <= 0.0:
         raise ValueError(
@@ -117,7 +140,7 @@ def optimized_inversion_parameters(
             "Retune c_stat, Delta_t, or the amplification schedule."
         )
 
-    return s_star, r_star
+    return r_star
 
 
 # ----------------------------------------------------------------------------
@@ -127,16 +150,20 @@ def optimized_inversion_parameters(
 def num_shots_for_round(
     m_t: int,
     delta_t: float,
-    c_stat: float,
     p_round: float,
+    epsilon_stat: float | None = None,
+    r_star: float | None = None,
 ) -> int:
     validate_probability(p_round, "p_round")
 
-    _, r_star = optimized_inversion_parameters(
-        m_t=m_t,
-        delta_t=delta_t,
-        c_stat=c_stat,
-    )
+    if r_star is None:
+        if epsilon_stat is None:
+            raise ValueError("epsilon_stat must be provided when r_star is not precomputed")
+        r_star = optimized_inversion_radius(
+            m_t=m_t,
+            delta_t=delta_t,
+            epsilon_stat=epsilon_stat,
+        )
 
     return int(math.ceil((2.0 / r_star**2) * math.log(2.0 / (1.0 - p_round))))
 
@@ -157,6 +184,10 @@ def compute_num_rounds(delta_0: float, epsilon: float, gamma: float) -> int:
 
 def per_round_success_probability(p_total: float, num_rounds: int) -> float:
     validate_probability(p_total, "p_total")
+    if num_rounds < 0:
+        raise ValueError(f"num_rounds must be non-negative, got {num_rounds!r}")
+    if num_rounds == 0:
+        return 1.0
     return p_total ** (1.0 / num_rounds)
 
 
@@ -171,42 +202,12 @@ def verify_initial_feasibility(delta_0: float, c_bias: float, rho0: float) -> No
             "pi/2 to satisfy the safety condition m_t * Delta_t < pi/2 for m_t=1."
         )
 
-    if bias_contraction_bound(1, delta_0, rho0) > c_bias:
+    if contrast_bias_bound(1, delta_0, rho0) > c_bias * delta_0:
         raise ValueError(
-            "Initial classical schedule is infeasible: F_0(1) exceeds c_bias. "
+            "Initial classical schedule is infeasible: B(1; Delta_0, rho0) exceeds "
+            "c_bias * Delta_0. "
             "Retune the design parameters before running the algorithm."
         )
-
-
-def max_starting_amplification(delta_0: float, rho0: float, m_hw: int) -> int:
-    if delta_0 <= 0.0:
-        raise ValueError(f"delta_0 must be positive, got {delta_0!r}")
-    if delta_0 >= (math.pi / 2):
-        raise ValueError(
-            "Initial classical schedule is infeasible: Delta_0 must be less than pi/2."
-        )
-    if m_hw < 1:
-        raise ValueError(f"m_hw must be at least 1, got {m_hw!r}")
-
-    upper = min(m_hw, int(math.ceil(math.pi / (2 * delta_0))) - 1)
-    if upper < 1:
-        raise ValueError(
-            "No starting amplification satisfies the safety condition "
-            "m_start * Delta_0 < pi/2."
-        )
-
-    feasible = None
-    for candidate in range(1, upper + 1):
-        if bias_contraction_bound(candidate, delta_0, rho0) < 1.0:
-            feasible = candidate
-
-    if feasible is None:
-        raise ValueError(
-            "No starting amplification satisfies F_0(m_start) < 1. "
-            "Retune Delta_0 or rho0."
-        )
-
-    return feasible
 
 
 # ---------------------------------------------------------------------------
@@ -214,12 +215,6 @@ def max_starting_amplification(delta_0: float, rho0: float, m_hw: int) -> int:
 # ---------------------------------------------------------------------------
 
 def design_algorithm_parameters(config: DemoConfig) -> AlgorithmParameters:
-    m_start = max_starting_amplification(
-        delta_0=config.Delta_0,
-        rho0=config.rho0,
-        m_hw=config.m_hw,
-    )
-
     gamma = config.gamma
     omega = config.omega
 
@@ -248,7 +243,6 @@ def design_algorithm_parameters(config: DemoConfig) -> AlgorithmParameters:
     )
 
     return AlgorithmParameters(
-        m_start=m_start,
         gamma=gamma,
         omega=omega,
         c_stat=c_stat,
@@ -276,7 +270,6 @@ def plan_trial(
       - shots for each round,
       - total shots.
 
-    It does not compute theta_t, empirical signals, estimates, or final errors.
     Those require actual simulation data and are handled by run_trial().
     """
     delta_t = config.Delta_0
@@ -284,24 +277,21 @@ def plan_trial(
     total_shots = 0
 
     for round_index in range(algorithm.num_rounds):
-        m_t = max_feasible_amplification(
+        epsilon_stat_t = algorithm.c_stat * delta_t
+        epsilon_bias_t = algorithm.c_bias * delta_t
+        m_t, r_star = shot_optimized_amplification(
             delta_t=delta_t,
-            c_bias=algorithm.c_bias,
+            epsilon_stat=epsilon_stat_t,
+            epsilon_bias=epsilon_bias_t,
             rho0=config.rho0,
             m_hw=config.m_hw,
-        )
-
-        s_star, r_star = optimized_inversion_parameters(
-            m_t=m_t,
-            delta_t=delta_t,
-            c_stat=algorithm.c_stat,
         )
 
         shots = num_shots_for_round(
             m_t=m_t,
             delta_t=delta_t,
-            c_stat=algorithm.c_stat,
             p_round=algorithm.p_round,
+            r_star=r_star,
         )
 
         rounds.append(
@@ -310,7 +300,6 @@ def plan_trial(
                 delta_bound=delta_t,
                 amplification=m_t,
                 shots=shots,
-                s_star=s_star,
                 r_star=r_star,
                 p_round=algorithm.p_round,
             )
@@ -338,14 +327,9 @@ def run_trial(
     label: str,
     plan: TrialPlan | None = None,
 ) -> TrialResult:
-    """Run the adaptive algorithm using a precomputed classical schedule.
-
-    If plan is not provided, it is computed internally. Passing plan explicitly is
-    useful when you want to reuse the same classical schedule for:
-      - shot-count plots,
-      - full Qiskit simulation,
-      - debugging,
-      - reproducibility checks.
+    """
+    Run the adaptive algorithm using a precomputed classical schedule.
+    If plan is not provided, it is computed internally.
     """
     if plan is None:
         plan = plan_trial(
@@ -385,15 +369,8 @@ def run_trial(
                 delta_bound=round_plan.delta_bound,
                 amplification=round_plan.amplification,
                 shots=round_plan.shots,
-                s_star=round_plan.s_star,
                 r_star=round_plan.r_star,
                 p_round=round_plan.p_round,
-                signal_theory=theoretical_parity_mean(
-                    rho=config.rho,
-                    phi_true=config.phi_true,
-                    theta_ref=theta_t,
-                    m=round_plan.amplification,
-                ),
                 signal_empirical=signal_empirical,
                 clipped_signal=clipped_signal,
                 estimate=estimate,
