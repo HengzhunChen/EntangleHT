@@ -20,6 +20,7 @@ from __future__ import annotations
 import math
 import os
 import sys
+import time
 from dataclasses import replace
 from pathlib import Path
 from typing import Dict, List, Sequence
@@ -43,44 +44,44 @@ from entangle_ht.schedule import (
 from entangle_ht.utilities import DemoConfig, phase_error
 
 
-# # ----------------------------------------------------------
-# # For test simulation error
-# BASE_CONFIG = replace(
-#     DemoConfig(),
-#     rho=0.995,
-#     rho0=0.97,
-#     phi_true=0.35,
-#     theta_0=0.20,
-#     Delta_0=0.20,
-#     p_total=0.95,
-#     gamma=0.8,
-#     omega=0.6,
-#     m_hw=100,
-#     base_seed=20260416,
-# )
-# # EPSILON_GRID = (0.08, 0.07, 0.06, 0.05, 0.04)  # Quick run test
-# EPSILON_GRID = (0.04, 0.02, 0.01, 0.005, 0.0025, 0.00125, 0.000625, 0.0003125)
-# OUTPUT_DIR = Path("outputs")
-# # ----------------------------------------------------------
-
 # ----------------------------------------------------------
-# For test measurement plan scaling
+# For test simulation error
 BASE_CONFIG = replace(
     DemoConfig(),
-    rho=0.999999,
-    rho0=0.9999,
+    rho=0.995,
+    rho0=0.97,
     phi_true=0.35,
     theta_0=0.20,
     Delta_0=0.20,
     p_total=0.95,
-    gamma=0.6,
+    gamma=0.8,
     omega=0.6,
     m_hw=100,
     base_seed=20260416,
 )
-EPSILON_GRID = (1e-2, 5e-3, 1e-3, 5e-4, 1e-4, 1e-5, 1e-6)
-OUTPUT_DIR = Path("temp")
+# EPSILON_GRID = (0.08, 0.07, 0.06, 0.05, 0.04)  # Quick run test
+EPSILON_GRID = (0.04, 0.02, 0.01, 0.005, 0.0025, 0.00125, 0.000625, 0.0003125)
+OUTPUT_DIR = Path("outputs")
 # ----------------------------------------------------------
+
+# # ----------------------------------------------------------
+# # For test measurement plan scaling
+# BASE_CONFIG = replace(
+#     DemoConfig(),
+#     rho=0.999999,
+#     rho0=0.9999,
+#     phi_true=0.35,
+#     theta_0=0.20,
+#     Delta_0=0.20,
+#     p_total=0.95,
+#     gamma=0.6,
+#     omega=0.6,
+#     m_hw=100,
+#     base_seed=20260416,
+# )
+# EPSILON_GRID = (1e-2, 5e-3, 1e-3, 5e-4, 1e-4, 1e-5, 1e-6)
+# OUTPUT_DIR = Path("temp")
+# # ----------------------------------------------------------
 
 
 def configure_matplotlib_cache() -> None:
@@ -148,6 +149,7 @@ def run_standard_hadamard(
 
     return {
         "shots": float(shots),
+        "estimate": estimate,
         "actual_error": abs(phase_error(estimate, config.phi_true)),
         "bias_floor": abs(phase_error(limit_estimate, config.phi_true)),
     }
@@ -237,6 +239,7 @@ def simulate_accuracy_grid(
     simulation_data: List[Dict[str, float]] = []
 
     for index, planning_row in enumerate(plan_data):
+        epsilon_start = time.perf_counter()
         epsilon = planning_row["epsilon"]
         plan_record = plan_records[epsilon]
 
@@ -248,6 +251,7 @@ def simulate_accuracy_grid(
         one_register_algorithm = plan_record["one_register_algorithm"]
         one_register_plan = plan_record["one_register_plan"]
 
+        entangled_start = time.perf_counter()
         entangled_trial = run_trial(
             config=config,
             algorithm=entangled_algorithm,
@@ -256,7 +260,9 @@ def simulate_accuracy_grid(
             label="entangle",
             plan=entangled_plan,
         )
+        entangled_seconds = time.perf_counter() - entangled_start
 
+        one_register_start = time.perf_counter()
         one_register_trial = run_trial(
             config=one_register_config,
             algorithm=one_register_algorithm,
@@ -265,12 +271,16 @@ def simulate_accuracy_grid(
             label="one_register",
             plan=one_register_plan,
         )
+        one_register_seconds = time.perf_counter() - one_register_start
 
+        standard_start = time.perf_counter()
         standard_hadamard = run_standard_hadamard(
             config=config,
             simulator=simulator,
             seed=config.base_seed + 20_000 + 97 * index,
         )
+        standard_seconds = time.perf_counter() - standard_start
+        simulation_seconds = time.perf_counter() - epsilon_start
 
         simulation_data.append(
             {
@@ -281,7 +291,19 @@ def simulate_accuracy_grid(
                 "one_register_error": abs(one_register_trial.final_error),
                 "standard_hadamard_error": standard_hadamard["actual_error"],
                 "standard_hadamard_bias_floor": standard_hadamard["bias_floor"],
+                "entangle_seconds": entangled_seconds,
+                "one_register_seconds": one_register_seconds,
+                "standard_hadamard_seconds": standard_seconds,
+                "simulation_seconds": simulation_seconds,
             }
+        )
+
+        print(
+            f"[simulation] epsilon={epsilon:.6g} "
+            f"entangled={entangled_seconds:.3f}s "
+            f"one_register={one_register_seconds:.3f}s "
+            f"standard={standard_seconds:.3f}s "
+            f"total={simulation_seconds:.3f}s"
         )
 
     return simulation_data
@@ -293,10 +315,8 @@ def simulate_accuracy_grid(
 
 def print_planning_table(plan_data: Sequence[Dict[str, float]]) -> None:
     print(
-        "epsilon\tIterative entangled HT shots\t"
-        "Iterative non-entangled HT shots\tStandard HT shots\t"
-        "max_m\tIterative entangled HT rounds\t"
-        "Iterative non-entangled HT rounds"
+        "epsilon\tEIHT shots\tIHT shots\tStdHT shots\t"
+        "max_m\tEIHT rounds\tIHT rounds"
     )
 
     for row in plan_data:
@@ -314,10 +334,7 @@ def print_planning_table(plan_data: Sequence[Dict[str, float]]) -> None:
 def print_measurement_ratio_table(plan_data: Sequence[Dict[str, float]]) -> None:
     print()
     print("Measurement ratios")
-    print(
-        "epsilon\tIterative non-entangled HT / Iterative entangled HT\t"
-        "Standard HT / Iterative entangled HT"
-    )
+    print("epsilon\tIHT / EIHT\tStdHT / EIHT")
 
     for row in plan_data:
         non_entangled_ratio = row["one_register_shots"] / row["entangle_shots"]
@@ -333,11 +350,7 @@ def print_measurement_ratio_table(plan_data: Sequence[Dict[str, float]]) -> None
 def print_error_table(simulation_data: Sequence[Dict[str, float]]) -> None:
     print()
     print("Simulation errors")
-    print(
-        "epsilon\tIterative entangled HT error\t"
-        "Iterative non-entangled HT error\tStandard HT error\t"
-        "Standard HT bias floor"
-    )
+    print("epsilon\tEIHT error\tIHT error\tStdHT error\tStdHT bias floor")
 
     for row in simulation_data:
         print(
@@ -346,6 +359,23 @@ def print_error_table(simulation_data: Sequence[Dict[str, float]]) -> None:
             f"{row['one_register_error']:.8f}\t"
             f"{row['standard_hadamard_error']:.8f}\t"
             f"{row['standard_hadamard_bias_floor']:.8f}"
+        )
+
+
+def print_simulation_timing_table(
+    simulation_data: Sequence[Dict[str, float]],
+) -> None:
+    print()
+    print("Simulation timing")
+    print("epsilon\tEIHT seconds\tIHT seconds\tStdHT seconds\ttotal seconds")
+
+    for row in simulation_data:
+        print(
+            f"{row['epsilon']:.6g}\t"
+            f"{row['entangle_seconds']:.6f}\t"
+            f"{row['one_register_seconds']:.6f}\t"
+            f"{row['standard_hadamard_seconds']:.6f}\t"
+            f"{row['simulation_seconds']:.6f}"
         )
 
 
@@ -677,6 +707,7 @@ def main_full_simulation() -> None:
     simulation_data = simulate_accuracy_grid(plan_data, plan_records)
 
     print_error_table(simulation_data)
+    print_simulation_timing_table(simulation_data)
     plot_error_comparison(simulation_data, OUTPUT_DIR)
 
 
@@ -684,10 +715,10 @@ def main() -> None:
     # Choose one of the two modes:
     #
     # 1. Fast planning-only mode:
-    main_planning_only()
+    # main_planning_only()
     #
     # 2. Full simulation mode:
-    # main_full_simulation()
+    main_full_simulation()
 
 
 if __name__ == "__main__":

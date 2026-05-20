@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 """
 Run one adaptive entangle_ht trial on the Qiskit simulator.
-
-The constants below intentionally use a loose target accuracy so the first
-end-to-end circuit run is quick. Edit them later for your application.
 """
 
 from __future__ import annotations
@@ -22,7 +19,7 @@ SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from entangle_ht.circuits import build_simulator
+from entangle_ht.circuits import build_simulator, build_noisy_simulator
 from entangle_ht.schedule import (
     design_algorithm_parameters,
     print_run_summary,
@@ -35,19 +32,45 @@ from entangle_ht.utilities import (
     phase_error,
 )
 
+NOISE_CONFIG = {
+    "one_qubit_error": 1e-4,
+    "two_qubit_error": 5e-3,
+    "readout_error": 1e-2,
+}
 
+# # -------------------------------------------------------------------
+# # For noiseless single run
+# RHO = 0.995
+# RHO0 = 0.97
+# PHI_TRUE = 0.35
+# THETA_0 = 0.20
+# DELTA_0 = 0.20
+# TARGET_RMSE = 0.01
+# P_TOTAL = 0.95
+# GAMMA = 0.85
+# OMEGA = 0.65
+# M_HW = 100
+# SEED = 20260415
+# OUTPUT_PATH = Path("outputs/single_run_schedule.png")
+# IS_NOISY = False
+# # -------------------------------------------------------------------
+
+# -------------------------------------------------------------------
+# For noisy single run
 RHO = 0.995
-RHO0 = 0.98
+RHO0 = 0.97
 PHI_TRUE = 0.35
 THETA_0 = 0.20
 DELTA_0 = 0.20
-TARGET_RMSE = 0.0001
+TARGET_RMSE = 0.01
 P_TOTAL = 0.95
 GAMMA = 0.85
 OMEGA = 0.65
 M_HW = 100
 SEED = 20260415
-OUTPUT_PATH = Path("outputs/single_run_schedule.png")
+OUTPUT_PATH = Path("outputs/single_run_schedule_noise.png")
+IS_NOISY = True
+# -------------------------------------------------------------------
 
 
 def build_example_config() -> DemoConfig:
@@ -149,10 +172,20 @@ def plot_schedule_example(
     plt.close(fig)
 
 
-def run_example() -> None:
+def run_example(is_noisy: bool = False) -> None:
     time_start = time.time()
     config = build_example_config()
-    simulator = build_simulator()
+
+    if is_noisy:
+        simulator = build_noisy_simulator(
+            method="automatic",
+            one_qubit_error_rate=NOISE_CONFIG["one_qubit_error"],
+            two_qubit_error_rate=NOISE_CONFIG["two_qubit_error"],
+            readout_error_rate=NOISE_CONFIG["readout_error"],
+        )
+    else:
+        simulator = build_simulator()
+
     algorithm = design_algorithm_parameters(config)
     trial = run_trial(
         config=config,
@@ -175,7 +208,12 @@ def run_example() -> None:
 
 
 def main() -> None:
-    run_example()
+    if IS_NOISY:
+        print("Running the example with noise...")
+    else:
+        print("Running the example without noise...")
+
+    run_example(IS_NOISY)
 
 
 if __name__ == "__main__":
