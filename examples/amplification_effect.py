@@ -68,7 +68,7 @@ OUTPUT_DIR = Path("outputs")
 # # For test measurement plan scaling
 # BASE_CONFIG = replace(
 #     DemoConfig(),
-#     rho=0.999999,
+#     rho=0.99999,
 #     rho0=0.9999,
 #     phi_true=0.35,
 #     theta_0=0.20,
@@ -79,7 +79,7 @@ OUTPUT_DIR = Path("outputs")
 #     m_hw=100,
 #     base_seed=20260416,
 # )
-# EPSILON_GRID = (1e-2, 5e-3, 1e-3, 5e-4, 1e-4, 1e-5, 1e-6)
+# EPSILON_GRID = (1e-2, 1e-3, 1e-4, 1e-5, 1e-6)
 # OUTPUT_DIR = Path("temp")
 # # ----------------------------------------------------------
 

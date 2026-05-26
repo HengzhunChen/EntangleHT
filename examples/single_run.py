@@ -38,8 +38,25 @@ NOISE_CONFIG = {
     "readout_error": 1e-2,
 }
 
+# -------------------------------------------------------------------
+# For noiseless single run
+RHO = 0.995
+RHO0 = 0.97
+PHI_TRUE = 0.35
+THETA_0 = 0.20
+DELTA_0 = 0.20
+TARGET_RMSE = 0.001
+P_TOTAL = 0.95
+GAMMA = 0.8
+OMEGA = 0.6
+M_HW = 100
+SEED = 20260415
+OUTPUT_PATH = Path("outputs/single_run_schedule.png")
+IS_NOISY = False
+# -------------------------------------------------------------------
+
 # # -------------------------------------------------------------------
-# # For noiseless single run
+# # For noisy single run
 # RHO = 0.995
 # RHO0 = 0.97
 # PHI_TRUE = 0.35
@@ -49,28 +66,11 @@ NOISE_CONFIG = {
 # P_TOTAL = 0.95
 # GAMMA = 0.85
 # OMEGA = 0.65
-# M_HW = 100
+# M_HW = 9  # for memory and time constraints of noisy simulation
 # SEED = 20260415
-# OUTPUT_PATH = Path("outputs/single_run_schedule.png")
-# IS_NOISY = False
+# OUTPUT_PATH = Path("outputs/single_run_schedule_noise.png")
+# IS_NOISY = True
 # # -------------------------------------------------------------------
-
-# -------------------------------------------------------------------
-# For noisy single run
-RHO = 0.995
-RHO0 = 0.97
-PHI_TRUE = 0.35
-THETA_0 = 0.20
-DELTA_0 = 0.20
-TARGET_RMSE = 0.01
-P_TOTAL = 0.95
-GAMMA = 0.85
-OMEGA = 0.65
-M_HW = 100
-SEED = 20260415
-OUTPUT_PATH = Path("outputs/single_run_schedule_noise.png")
-IS_NOISY = True
-# -------------------------------------------------------------------
 
 
 def build_example_config() -> DemoConfig:
@@ -178,7 +178,7 @@ def run_example(is_noisy: bool = False) -> None:
 
     if is_noisy:
         simulator = build_noisy_simulator(
-            method="automatic",
+            method="statevector",
             one_qubit_error_rate=NOISE_CONFIG["one_qubit_error"],
             two_qubit_error_rate=NOISE_CONFIG["two_qubit_error"],
             readout_error_rate=NOISE_CONFIG["readout_error"],

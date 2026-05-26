@@ -74,7 +74,7 @@ BASE_CONFIG = replace(
     p_total=0.95,
     gamma=0.8,
     omega=0.6,
-    m_hw=100,
+    m_hw=9,  # for memory and time constraints of noisy simulation
     base_seed=20260416,
 )
 EPSILON_GRID = (0.04, 0.02, 0.01)
@@ -192,6 +192,7 @@ def simulate_epsilon(
     # The same noisy backend is used for EIHT and StdHT so their runtime and
     # accuracy are compared under identical hardware-noise parameters.
     simulator = build_noisy_simulator(
+        method="statevector",
         one_qubit_error_rate=one_qubit_error_rate,
         two_qubit_error_rate=two_qubit_error_rate,
         readout_error_rate=readout_error_rate,
