@@ -91,15 +91,20 @@ FIELDNAMES = [
     "readout_error_rate",
     "seed",
     "eiht_shots",
+    "iht_shots",
     "stdht_shots",
     "max_m",
     "eiht_rounds",
+    "iht_rounds",
     "eiht_estimate",
+    "iht_estimate",
     "stdht_estimate",
     "eiht_error",
+    "iht_error",
     "stdht_error",
     "stdht_bias_floor",
     "eiht_seconds",
+    "iht_seconds",
     "stdht_seconds",
     "total_seconds",
 ]
@@ -183,14 +188,23 @@ def simulate_epsilon(
 
     algorithm = design_algorithm_parameters(config)
     plan = plan_trial(config=config, algorithm=algorithm, label="EIHT")
+
+    one_register_config = replace(config, m_hw=1)
+    one_register_algorithm = design_algorithm_parameters(one_register_config)
+    one_register_plan = plan_trial(
+        config=one_register_config,
+        algorithm=one_register_algorithm,
+        label="IHT",
+    )
+
     standard_shots = num_shot_standard_hadamard_test(
         epsilon=config.epsilon,
         p_success=config.p_total,
     )
     max_m = max(round_plan.amplification for round_plan in plan.rounds)
 
-    # The same noisy backend is used for EIHT and StdHT so their runtime and
-    # accuracy are compared under identical hardware-noise parameters.
+    # The same noisy backend is used for EIHT, IHT, and StdHT so their runtime
+    # and accuracy are compared under identical hardware-noise parameters.
     simulator = build_noisy_simulator(
         method="statevector",
         one_qubit_error_rate=one_qubit_error_rate,
@@ -200,8 +214,11 @@ def simulate_epsilon(
 
     print(
         f"[run] epsilon={epsilon:.6g} "
-        f"EIHT_shots={plan.total_shots} StdHT_shots={standard_shots} "
-        f"max_m={max_m} rounds={algorithm.num_rounds}",
+        f"EIHT_shots={plan.total_shots} "
+        f"IHT_shots={one_register_plan.total_shots} "
+        f"StdHT_shots={standard_shots} "
+        f"max_m={max_m} EIHT_rounds={algorithm.num_rounds} "
+        f"IHT_rounds={one_register_algorithm.num_rounds}",
         flush=True,
     )
 
@@ -217,6 +234,17 @@ def simulate_epsilon(
         plan=plan,
     )
     eiht_seconds = time.perf_counter() - eiht_start
+
+    iht_start = time.perf_counter()
+    iht_trial = run_trial(
+        config=one_register_config,
+        algorithm=one_register_algorithm,
+        simulator=simulator,
+        seed=seed + 10_000,
+        label="IHT",
+        plan=one_register_plan,
+    )
+    iht_seconds = time.perf_counter() - iht_start
 
     stdht_start = time.perf_counter()
     stdht = run_standard_hadamard(
@@ -234,15 +262,20 @@ def simulate_epsilon(
         "readout_error_rate": readout_error_rate,
         "seed": float(seed),
         "eiht_shots": float(plan.total_shots),
+        "iht_shots": float(one_register_plan.total_shots),
         "stdht_shots": float(standard_shots),
         "max_m": float(max_m),
         "eiht_rounds": float(algorithm.num_rounds),
+        "iht_rounds": float(one_register_algorithm.num_rounds),
         "eiht_estimate": eiht_trial.final_estimate,
+        "iht_estimate": iht_trial.final_estimate,
         "stdht_estimate": stdht["estimate"],
         "eiht_error": abs(eiht_trial.final_error),
+        "iht_error": abs(iht_trial.final_error),
         "stdht_error": stdht["actual_error"],
         "stdht_bias_floor": stdht["bias_floor"],
         "eiht_seconds": eiht_seconds,
+        "iht_seconds": iht_seconds,
         "stdht_seconds": stdht_seconds,
         "total_seconds": total_seconds,
     }
@@ -250,14 +283,17 @@ def simulate_epsilon(
     write_result(path, row)
 
     print(
-        "epsilon\tEIHT error\tStdHT error\tEIHT seconds\tStdHT seconds\ttotal seconds",
+        "epsilon\tEIHT error\tIHT error\tStdHT error\t"
+        "EIHT seconds\tIHT seconds\tStdHT seconds\ttotal seconds",
         flush=True,
     )
     print(
         f"{epsilon:.6g}\t"
         f"{row['eiht_error']:.8f}\t"
+        f"{row['iht_error']:.8f}\t"
         f"{row['stdht_error']:.8f}\t"
         f"{eiht_seconds:.3f}\t"
+        f"{iht_seconds:.3f}\t"
         f"{stdht_seconds:.3f}\t"
         f"{total_seconds:.3f}",
         flush=True,
@@ -280,19 +316,24 @@ def load_results(output_dir: Path) -> List[Dict[str, float]]:
 
 def print_results_table(rows: Sequence[Dict[str, float]]) -> None:
     print(
-        "epsilon\tEIHT shots\tStdHT shots\tmax_m\tEIHT rounds\t"
-        "EIHT error\tStdHT error\tEIHT seconds\tStdHT seconds\ttotal seconds"
+        "epsilon\tEIHT shots\tIHT shots\tStdHT shots\tmax_m\t"
+        "EIHT rounds\tIHT rounds\tEIHT error\tIHT error\tStdHT error\t"
+        "EIHT seconds\tIHT seconds\tStdHT seconds\ttotal seconds"
     )
     for row in rows:
         print(
             f"{row['epsilon']:.6g}\t"
             f"{int(row['eiht_shots'])}\t"
+            f"{int(row['iht_shots'])}\t"
             f"{int(row['stdht_shots'])}\t"
             f"{int(row['max_m'])}\t"
             f"{int(row['eiht_rounds'])}\t"
+            f"{int(row['iht_rounds'])}\t"
             f"{row['eiht_error']:.8f}\t"
+            f"{row['iht_error']:.8f}\t"
             f"{row['stdht_error']:.8f}\t"
             f"{row['eiht_seconds']:.3f}\t"
+            f"{row['iht_seconds']:.3f}\t"
             f"{row['stdht_seconds']:.3f}\t"
             f"{row['total_seconds']:.3f}"
         )
@@ -311,8 +352,10 @@ def plot_results(rows: Sequence[Dict[str, float]], output_dir: Path) -> None:
 
     epsilon_values = [row["epsilon"] for row in rows]
     eiht_errors = [max(row["eiht_error"], 1e-16) for row in rows]
+    iht_errors = [max(row["iht_error"], 1e-16) for row in rows]
     stdht_errors = [max(row["stdht_error"], 1e-16) for row in rows]
     eiht_seconds = [max(row["eiht_seconds"], 1e-16) for row in rows]
+    iht_seconds = [max(row["iht_seconds"], 1e-16) for row in rows]
     stdht_seconds = [max(row["stdht_seconds"], 1e-16) for row in rows]
 
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -323,6 +366,15 @@ def plot_results(rows: Sequence[Dict[str, float]], output_dir: Path) -> None:
         linewidth=2.2,
         color="tab:blue",
         label="Iterative entangled HT",
+    )
+    ax.plot(
+        epsilon_values,
+        iht_errors,
+        marker="^",
+        linestyle=":",
+        linewidth=2.2,
+        color="tab:green",
+        label="Iterative non-entangled HT",
     )
     ax.plot(
         epsilon_values,
@@ -362,6 +414,15 @@ def plot_results(rows: Sequence[Dict[str, float]], output_dir: Path) -> None:
         linewidth=2.2,
         color="tab:blue",
         label="Iterative entangled HT",
+    )
+    ax.plot(
+        epsilon_values,
+        iht_seconds,
+        marker="^",
+        linestyle=":",
+        linewidth=2.2,
+        color="tab:green",
+        label="Iterative non-entangled HT",
     )
     ax.plot(
         epsilon_values,

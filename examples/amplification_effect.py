@@ -68,8 +68,8 @@ OUTPUT_DIR = Path("outputs")
 # # For test measurement plan scaling
 # BASE_CONFIG = replace(
 #     DemoConfig(),
-#     rho=0.99999,
-#     rho0=0.9999,
+#     rho=0.9999,
+#     rho0=0.999,
 #     phi_true=0.35,
 #     theta_0=0.20,
 #     Delta_0=0.20,
