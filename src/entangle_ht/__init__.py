@@ -1,10 +1,21 @@
-"""GHZ Hadamard-test phase-estimation utilities."""
+"""Certified planning and simulation for entangled Hadamard tests."""
 
-from .utilities import AlgorithmParameters, DemoConfig, RoundRecord, TrialResult
+from .records import (
+    EstimateResult,
+    EstimationConfig,
+    RoundPlan,
+    RoundRecord,
+    ScheduleResult,
+    TrialPlan,
+    TrialResult,
+)
 
 __all__ = [
-    "AlgorithmParameters",
-    "DemoConfig",
+    "EstimateResult",
+    "EstimationConfig",
     "RoundRecord",
+    "RoundPlan",
+    "ScheduleResult",
+    "TrialPlan",
     "TrialResult",
 ]
