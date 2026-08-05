@@ -1,28 +1,9 @@
 #!/usr/bin/env python3
-"""Planning tables for the imperfect-eigenstate experiments.
+"""Compare Standard HT, Fixed-m EHT, and Iterative EHT for an imperfect state.
 
 The exact and imperfect models use the same phase gate and target eigenstate;
-only the state preparation differs.
-
-Command-line options:
-  -h, --help                 Show the command-line help and exit.
-  --schedule {geometric,dp}  Select the primary optimizer
-                             (default: geometric).
-  --comparison-curves CURVE  Select one or more comparison-plot curves from
-                             two-quadrature, geometric, and dp
-                             (default: all three).
-  --output-dir PATH          Set the figure directory
-                             (default: outputs/imperfect_eigenstate).
-  --no-plots                 Print tables without generating figures.
-
-With no options, the script prints an iterative table for every plotted
-optimizer and writes all figures to outputs/imperfect_eigenstate. Any optimizer
-included in a plot is also included in the console output.
-
-Examples:
-  python imperfect_eigenstate.py --no-plots
-  python imperfect_eigenstate.py --schedule dp --output-dir outputs/imperfect_dp
-  python imperfect_eigenstate.py --comparison-curves two-quadrature dp
+only the state preparation differs. Iterative EHT uses the geometric schedule
+defined by ``GAMMA_GRID`` and ``OMEGA_GRID``.
 """
 
 from __future__ import annotations
@@ -30,6 +11,7 @@ from __future__ import annotations
 import argparse
 import math
 import sys
+from dataclasses import replace
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -39,19 +21,20 @@ SRC_ROOT = PROJECT_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from entangle_ht.baselines import standard_restarts, two_quadrature_standard_shots
+from entangle_ht.baselines import (
+    imperfect_fixed_amplification_hadamard_shots,
+    standard_hadamard_shots,
+)
+from entangle_ht.certification import contrast_bias_bound
 from entangle_ht.circuit_models.imperfect import (
-    imperfect_contrast_lower_bound,
-    imperfect_overlap,
+    imperfect_model_parameters,
 )
-from entangle_ht.planning import (
-    optimize_imperfect_dp,
-    optimize_imperfect_geometric,
-)
+from entangle_ht.planning import optimize_imperfect_geometric
 from entangle_ht.records import EstimationConfig, ScheduleResult
-from entangle_ht.resources import ResourceModel
-from entangle_ht.utilities import phase_error
+from entangle_ht.resources import ResourceModel, restarts_from_shots
 from example_utils import (
+    METHOD_LABELS,
+    METHOD_STYLES,
     configure_matplotlib_cache,
     format_count,
     format_grid_value,
@@ -63,12 +46,12 @@ from example_utils import (
 # Experiment settings
 # *****************************************************************************
 
-THETA_TARGET = 0.35
+THETA_TARGET = 2.0
 ETA = 0.01
-THETA_0 = 0.20
-DELTA_0 = 0.20
+INITIAL_REFERENCE = 1.8
+INITIAL_BOUND = 0.2
 P_SUCCESS_TOTAL = 0.95
-BRANCH_MARGIN = math.pi / 10
+BRANCH_MARGIN = math.pi / 4
 M_HW = 100
 RESOURCES = ResourceModel(device_qubits=2500, system_qubits=1)
 
@@ -104,137 +87,149 @@ OMEGA_GRID = (
     0.90,
     0.95,
 )
-DP_DELTA_GRID_SIZE = 50
-DP_MAX_ROUNDS = 8
-
-SCHEDULE_METHOD = "geometric"
-COMPARISON_CURVE_CHOICES = (
-    "two-quadrature",
-    "geometric",
-    "dp",
-)
-BASELINE_COLORS = {"two-quadrature": "#009E73"}
-SCHEDULE_COLORS = {
-    "geometric": "#0072B2",
-    "dp": "#D55E00",
-}
 
 EPSILON_GRID = (
-    5e-2,
+    3e-2,
     2e-2,
-    1e-2,
-    5e-3,
-    2e-3,
-    1e-3,
+    1.5e-2,
+    1.1e-2,
+    9e-3,
+    7e-3,
+    5.5e-3,
+    4.5e-3,
+    3.5e-3,
+)
+FIXED_AMPLIFICATION = 2
+MODEL_PARAMETERS = imperfect_model_parameters(THETA_TARGET, ETA)
+# The Standard HT contrast-bias bound is B(1; Delta_0, rho_0). Its statistical
+# budget is positive only when the target accuracy is greater than this bound.
+STANDARD_HT_BIAS_BOUND = contrast_bias_bound(
+    1,
+    INITIAL_BOUND,
+    MODEL_PARAMETERS.contrast_lower_bound,
+)
+FIXED_M_BIAS_BOUND = contrast_bias_bound(
+    FIXED_AMPLIFICATION,
+    INITIAL_BOUND,
+    MODEL_PARAMETERS.contrast_lower_bound,
 )
 OUTPUT_DIR = Path("outputs/imperfect_eigenstate")
+IMPERFECT_BASE_CONFIG = EstimationConfig(
+    phase=MODEL_PARAMETERS.effective_phase,
+    initial_reference=INITIAL_REFERENCE,
+    initial_bound=INITIAL_BOUND,
+    target_accuracy=EPSILON_GRID[0],
+    total_success_probability=P_SUCCESS_TOTAL,
+    branch_margin=BRANCH_MARGIN,
+    hardware_amplification_cap=M_HW,
+    contrast=MODEL_PARAMETERS.contrast,
+    contrast_lower_bound=MODEL_PARAMETERS.contrast_lower_bound,
+)
 
 
 # *****************************************************************************
 # Schedule construction
 # *****************************************************************************
 
-def model_parameters() -> tuple[float, float, float, float]:
-    contrast, effective_phase, _ = imperfect_overlap(THETA_TARGET, ETA)
-    contrast_lower_bound = imperfect_contrast_lower_bound(ETA)
-    preparation_floor = abs(phase_error(effective_phase, THETA_TARGET))
-    return contrast, effective_phase, contrast_lower_bound, preparation_floor
-
-
 def imperfect_config(epsilon: float) -> EstimationConfig:
-    contrast, effective_phase, contrast_lower_bound, _ = model_parameters()
-    return EstimationConfig(
-        phase=effective_phase,
-        initial_reference=THETA_0,
-        initial_bound=DELTA_0,
-        target_accuracy=epsilon,
-        total_success_probability=P_SUCCESS_TOTAL,
-        branch_margin=BRANCH_MARGIN,
-        hardware_amplification_cap=M_HW,
-        contrast=contrast,
-        contrast_lower_bound=contrast_lower_bound,
-    )
+    return replace(IMPERFECT_BASE_CONFIG, target_accuracy=epsilon)
 
 
-def plan_schedule(epsilon: float, *, schedule: str) -> ScheduleResult:
+def plan_schedule(epsilon: float) -> ScheduleResult:
     config = imperfect_config(epsilon)
-    if schedule == "geometric":
-        return optimize_imperfect_geometric(
-            base_config=config,
-            gamma_grid=GAMMA_GRID,
-            omega_grid=OMEGA_GRID,
-            resources=RESOURCES,
-        )
-    if schedule == "dp":
-        return optimize_imperfect_dp(
-            base_config=config,
-            resources=RESOURCES,
-            omega_grid=OMEGA_GRID,
-            grid_size=DP_DELTA_GRID_SIZE,
-            max_rounds=DP_MAX_ROUNDS,
-        )
-    raise ValueError(f"unknown schedule method {schedule!r}")
+    return optimize_imperfect_geometric(
+        base_config=config,
+        gamma_grid=GAMMA_GRID,
+        omega_grid=OMEGA_GRID,
+        resources=RESOURCES,
+    )
 
 
 # *****************************************************************************
 # Result generation
 # *****************************************************************************
 
-def accuracy_rows(*, schedule: str) -> list[dict[str, float | str]]:
+def accuracy_rows() -> list[dict[str, float | str]]:
     rows: list[dict[str, float | str]] = []
-    _, _, _, prep_floor = model_parameters()
 
     for epsilon in EPSILON_GRID:
-        result = plan_schedule(epsilon, schedule=schedule)
-        baseline_shots = two_quadrature_standard_shots(
-            epsilon=epsilon,
-            rho0=result.config.contrast_lower_bound,
-            p_fail=(
-                1.0 - result.config.total_success_probability
-            ),
+        result = plan_schedule(epsilon)
+        p_fail = 1.0 - result.config.total_success_probability
+        standard_bias_bound = contrast_bias_bound(
+            1,
+            result.config.initial_bound,
+            result.config.contrast_lower_bound,
         )
-        baseline_restarts = standard_restarts(baseline_shots, RESOURCES)
-        if result.method == "geometric":
-            schedule_label = (
-                f"gamma={format_grid_value(result.gamma or 0.0)}, "
-                f"omega={format_grid_value(result.omega or 0.0)}"
+        standard_statistical_accuracy = epsilon - standard_bias_bound
+        if standard_statistical_accuracy > 0.0:
+            standard_shots = standard_hadamard_shots(
+                epsilon=standard_statistical_accuracy,
+                delta=result.config.initial_bound,
+                p_fail=p_fail,
+            )
+            standard_restart_count = restarts_from_shots(
+                standard_shots,
+                RESOURCES.packing_capacity(1),
             )
         else:
-            schedule_label = f"DP[{result.grid_points}]"
+            standard_statistical_accuracy = math.nan
+            standard_shots = math.nan
+            standard_restart_count = math.nan
+        fixed_m_statistical_accuracy = epsilon - FIXED_M_BIAS_BOUND
+        if fixed_m_statistical_accuracy > 0.0:
+            fixed_m_shots = imperfect_fixed_amplification_hadamard_shots(
+                epsilon=epsilon,
+                delta=result.config.initial_bound,
+                amplification=FIXED_AMPLIFICATION,
+                contrast_lower_bound=result.config.contrast_lower_bound,
+                p_fail=p_fail,
+            )
+            fixed_m_restarts = restarts_from_shots(
+                fixed_m_shots,
+                RESOURCES.packing_capacity(FIXED_AMPLIFICATION),
+            )
+        else:
+            fixed_m_shots = math.nan
+            fixed_m_restarts = math.nan
+        schedule_label = (
+            f"gamma={format_grid_value(result.gamma or 0.0)}, "
+            f"omega={format_grid_value(result.omega or 0.0)}"
+        )
         rows.append(
             {
                 "epsilon": epsilon,
                 "entangled_shots": float(result.plan.total_shots),
-                "standard_shots": float(baseline_shots),
+                "standard_shots": float(standard_shots),
                 "entangled_queries": float(result.plan.total_queries),
-                "standard_queries": float(baseline_shots),
+                "standard_queries": float(standard_shots),
                 "entangled_restarts": float(result.restarts),
-                "standard_restarts": float(baseline_restarts),
+                "standard_restarts": float(standard_restart_count),
+                "fixed_m_shots": float(fixed_m_shots),
+                "fixed_m_restarts": float(fixed_m_restarts),
+                "fixed_m_statistical_accuracy": (
+                    fixed_m_statistical_accuracy
+                    if fixed_m_statistical_accuracy > 0.0
+                    else math.nan
+                ),
+                "standard_bias_bound": standard_bias_bound,
+                "standard_statistical_accuracy": standard_statistical_accuracy,
                 "max_m": float(result.max_amplification),
                 "rounds": float(result.rounds),
                 "schedule": schedule_label,
-                "shot_ratio": baseline_shots / result.plan.total_shots,
-                "restart_ratio": baseline_restarts / result.restarts,
-                "target_floor": prep_floor,
+                "shot_ratio": (
+                    standard_shots / result.plan.total_shots
+                    if math.isfinite(standard_shots)
+                    else math.nan
+                ),
+                "restart_ratio": (
+                    standard_restart_count / result.restarts
+                    if math.isfinite(standard_restart_count)
+                    else math.nan
+                ),
+                "target_floor": MODEL_PARAMETERS.preparation_floor,
             }
         )
     return rows
-
-
-def comparison_rows(
-    *,
-    selected_schedule: str,
-    selected_rows: Sequence[dict[str, float | str]],
-    schedules: Sequence[str],
-) -> dict[str, list[dict[str, float | str]]]:
-    rows_by_schedule: dict[str, list[dict[str, float | str]]] = {}
-    for schedule in schedules:
-        rows_by_schedule[schedule] = (
-            list(selected_rows)
-            if schedule == selected_schedule
-            else accuracy_rows(schedule=schedule)
-        )
-    return rows_by_schedule
 
 
 # *****************************************************************************
@@ -242,42 +237,114 @@ def comparison_rows(
 # *****************************************************************************
 
 def print_setup() -> None:
-    rho, theta_psi, rho0, prep_floor = model_parameters()
     print("Imperfect-eigenstate experiment")
     print(
-        f"theta_target={THETA_TARGET:.10f}, theta_psi={theta_psi:.10f}, "
-        f"rho={rho:.10f}, rho0={rho0:.10f}, eta={ETA:.6g}"
+        f"theta_target={THETA_TARGET:.10f}, "
+        f"theta_psi={MODEL_PARAMETERS.effective_phase:.10f}, "
+        f"rho={MODEL_PARAMETERS.contrast:.10f}, "
+        f"rho0={MODEL_PARAMETERS.contrast_lower_bound:.10f}, "
+        f"eta={ETA:.6g}"
     )
-    print(f"target-phase preparation floor={prep_floor:.6g}")
     print(
-        f"resources: Q={RESOURCES.device_qubits}, n_sys={RESOURCES.system_qubits}, "
-        f"kappa(1)={RESOURCES.packing_capacity(1)}, m_hw={RESOURCES.effective_m_hw(M_HW)}"
+        f"initial_reference={INITIAL_REFERENCE:.10f}, "
+        f"initial_bound={INITIAL_BOUND:.6g}"
+    )
+    print(
+        "target-phase preparation floor="
+        f"{MODEL_PARAMETERS.preparation_floor:.6g}"
+    )
+    print(
+        "Standard HT contrast-bias bound="
+        f"{STANDARD_HT_BIAS_BOUND:.10g}; "
+        f"epsilon grid={EPSILON_GRID}"
+    )
+    print(
+        f"Fixed-m EHT (m={FIXED_AMPLIFICATION}) contrast-bias bound="
+        f"{FIXED_M_BIAS_BOUND:.10g}; "
+        f"kappa(m)={RESOURCES.packing_capacity(FIXED_AMPLIFICATION)}"
+    )
+    print(
+        f"resources: Q={RESOURCES.device_qubits}, "
+        f"n_sys={RESOURCES.system_qubits}, "
+        f"kappa(1)={RESOURCES.packing_capacity(1)}, "
+        f"m_hw={RESOURCES.effective_m_hw(M_HW)}"
     )
 
 
 def print_accuracy_table(
     rows: Sequence[dict[str, float | str]],
-    *,
-    method: str,
 ) -> None:
     print()
-    print(f"Iterative entangled HT vs two-quadrature standard HT ({method})")
+    print("Iterative imperfect-eigenstate comparison")
     print(
-        "epsilon\tEnt shots\tEnt queries\t2Q shots\tEnt restarts\t"
-        "2Q restarts\tmax_m\trounds\tschedule\t2Q/Ent restarts"
+        "epsilon\tStandard stat eps\tFixed-m EHT stat eps\t"
+        "Iterative EHT shots\tIterative EHT queries\tStandard shots\t"
+        "Fixed-m EHT shots\tIterative EHT restarts\tStandard restarts\t"
+        "Fixed-m EHT restarts\tmax_m\trounds\tschedule\t"
+        "Standard/Iterative EHT"
     )
     for row in rows:
+        standard_statistical_accuracy = float(
+            row["standard_statistical_accuracy"]
+        )
+        standard_shots = float(row["standard_shots"])
+        standard_restarts = float(row["standard_restarts"])
+        restart_ratio = float(row["restart_ratio"])
+        fixed_m_statistical_accuracy = float(
+            row["fixed_m_statistical_accuracy"]
+        )
+        fixed_m_shots = float(row["fixed_m_shots"])
+        fixed_m_restarts = float(row["fixed_m_restarts"])
+        standard_statistical_text = (
+            f"{standard_statistical_accuracy:.6g}"
+            if math.isfinite(standard_statistical_accuracy)
+            else "--"
+        )
+        standard_shots_text = (
+            format_count(standard_shots)
+            if math.isfinite(standard_shots)
+            else "--"
+        )
+        standard_restarts_text = (
+            format_count(standard_restarts)
+            if math.isfinite(standard_restarts)
+            else "--"
+        )
+        restart_ratio_text = (
+            f"{restart_ratio:.3f}"
+            if math.isfinite(restart_ratio)
+            else "--"
+        )
+        fixed_m_statistical_text = (
+            f"{fixed_m_statistical_accuracy:.6g}"
+            if math.isfinite(fixed_m_statistical_accuracy)
+            else "--"
+        )
+        fixed_m_shots_text = (
+            format_count(fixed_m_shots)
+            if math.isfinite(fixed_m_shots)
+            else "--"
+        )
+        fixed_m_restarts_text = (
+            format_count(fixed_m_restarts)
+            if math.isfinite(fixed_m_restarts)
+            else "--"
+        )
         print(
             f"{float(row['epsilon']):.6g}\t"
+            f"{standard_statistical_text}\t"
+            f"{fixed_m_statistical_text}\t"
             f"{format_count(float(row['entangled_shots']))}\t"
             f"{format_count(float(row['entangled_queries']))}\t"
-            f"{format_count(float(row['standard_shots']))}\t"
+            f"{standard_shots_text}\t"
+            f"{fixed_m_shots_text}\t"
             f"{format_count(float(row['entangled_restarts']))}\t"
-            f"{format_count(float(row['standard_restarts']))}\t"
+            f"{standard_restarts_text}\t"
+            f"{fixed_m_restarts_text}\t"
             f"{int(float(row['max_m']))}\t"
             f"{int(float(row['rounds']))}\t"
             f"{row['schedule']}\t"
-            f"{float(row['restart_ratio']):.3f}"
+            f"{restart_ratio_text}"
         )
 
 
@@ -286,65 +353,93 @@ def print_accuracy_table(
 # *****************************************************************************
 
 def plot_iterative_restarts(
-    reference_rows: Sequence[dict[str, float | str]],
-    rows_by_schedule: dict[str, Sequence[dict[str, float | str]]],
+    rows: Sequence[dict[str, float | str]],
     output_dir: Path,
-    curves: Sequence[str],
 ) -> Path:
     configure_matplotlib_cache()
     import matplotlib.pyplot as plt
 
-    epsilons = [float(row["epsilon"]) for row in reference_rows]
-    standard = [float(row["standard_restarts"]) for row in reference_rows]
-    labels = {"geometric": "geometric schedule", "dp": "DP schedule"}
-    offsets = {"geometric": (0, 12), "dp": (0, -16)}
-    vertical_alignment = {"geometric": "bottom", "dp": "top"}
-    selected_curves = set(curves)
+    epsilons = [float(row["epsilon"]) for row in rows]
+    standard_rows = [
+        row
+        for row in rows
+        if math.isfinite(float(row["standard_restarts"]))
+    ]
+    fixed_m_rows = [
+        row
+        for row in rows
+        if math.isfinite(float(row["fixed_m_restarts"]))
+    ]
+    entangled = [float(row["entangled_restarts"]) for row in rows]
 
     fig, ax = plt.subplots(figsize=(7.2, 4.8))
-    if "two-quadrature" in selected_curves:
-        ax.plot(
-            epsilons,
-            standard,
-            marker="D",
-            linewidth=2.0,
-            linestyle="-.",
-            color=BASELINE_COLORS["two-quadrature"],
-            label="two-quadrature standard HT",
+    ax.plot(
+        [float(row["epsilon"]) for row in standard_rows],
+        [float(row["standard_restarts"]) for row in standard_rows],
+        linewidth=2.0,
+        label=METHOD_LABELS["standard"],
+        **METHOD_STYLES["standard"],
+    )
+    ax.plot(
+        [float(row["epsilon"]) for row in fixed_m_rows],
+        [float(row["fixed_m_restarts"]) for row in fixed_m_rows],
+        linewidth=2.0,
+        label=rf"{METHOD_LABELS['fixed_m']} ($m={FIXED_AMPLIFICATION}$)",
+        **METHOD_STYLES["fixed_m"],
+    )
+    ax.plot(
+        epsilons,
+        entangled,
+        linewidth=2.0,
+        label=METHOD_LABELS["entangled"],
+        **METHOD_STYLES["entangled"],
+    )
+    ax.axvline(
+        STANDARD_HT_BIAS_BOUND,
+        color=METHOD_STYLES["standard"]["color"],
+        linestyle=":",
+        linewidth=1.8,
+        label="Standard HT bias bound",
+    )
+    ax.axvline(
+        FIXED_M_BIAS_BOUND,
+        color=METHOD_STYLES["fixed_m"]["color"],
+        linestyle=":",
+        linewidth=1.8,
+        label=rf"{METHOD_LABELS['fixed_m']} bias bound "
+        rf"($m={FIXED_AMPLIFICATION}$)",
+    )
+    for row in rows:
+        epsilon = float(row["epsilon"])
+        horizontal_alignment = (
+            "left"
+            if epsilon == max(epsilons)
+            else "right" if epsilon == min(epsilons) else "center"
         )
-    for schedule in ("geometric", "dp"):
-        if schedule not in rows_by_schedule:
-            continue
-        rows = rows_by_schedule[schedule]
-        ax.plot(
-            [float(row["epsilon"]) for row in rows],
-            [float(row["entangled_restarts"]) for row in rows],
-            marker="o" if schedule == "geometric" else "s",
-            linewidth=2.0,
-            color=SCHEDULE_COLORS[schedule],
-            linestyle="-" if schedule == "geometric" else "--",
-            label=labels[schedule],
+        ax.annotate(
+            rf"$m\leq {int(float(row['max_m']))}$",
+            xy=(epsilon, float(row["entangled_restarts"])),
+            xytext=(0, -12),
+            textcoords="offset points",
+            ha=horizontal_alignment,
+            va="top",
+            fontsize=8,
+            color=METHOD_STYLES["entangled"]["color"],
+            bbox={
+                "boxstyle": "round,pad=0.1",
+                "facecolor": "white",
+                "edgecolor": "none",
+                "alpha": 0.85,
+            },
         )
-        for row in rows:
-            ax.annotate(
-                rf"$m\leq {int(float(row['max_m']))}$",
-                xy=(float(row["epsilon"]), float(row["entangled_restarts"])),
-                xytext=offsets[schedule],
-                textcoords="offset points",
-                ha="center",
-                va=vertical_alignment[schedule],
-                fontsize=8,
-                color=SCHEDULE_COLORS[schedule],
-                bbox={
-                    "boxstyle": "round,pad=0.12",
-                    "facecolor": "white",
-                    "edgecolor": "none",
-                    "alpha": 0.9,
-                },
-            )
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlim(1.12 * max(epsilons), min(epsilons) / 1.12)
+    lower_limit = min(min(epsilons), STANDARD_HT_BIAS_BOUND) / 1.20
+    ax.set_xlim(1.12 * max(epsilons), lower_limit)
+    ax.set_xticks((3e-2, 1e-2, 3e-3))
+    ax.set_xticklabels(
+        (r"$3\times10^{-2}$", r"$10^{-2}$", r"$3\times10^{-3}$")
+    )
     ax.set_xlabel(r"target effective-phase accuracy $\epsilon$")
     ax.set_ylabel("device restarts")
     ax.set_title("Imperfect-eigenstate restart count")
@@ -354,60 +449,63 @@ def plot_iterative_restarts(
     fig.tight_layout()
     path = save_figure(
         fig,
-        output_dir / "iterative_restarts_comparison_restarts.png",
+        output_dir / "iterative_restarts.png",
     )
     plt.close(fig)
     return path
 
 
 def plot_iterative_restart_ratio(
-    rows_by_schedule: dict[str, Sequence[dict[str, float | str]]],
+    rows: Sequence[dict[str, float | str]],
     output_dir: Path,
 ) -> Path:
     configure_matplotlib_cache()
     import matplotlib.pyplot as plt
 
-    reference_rows = next(iter(rows_by_schedule.values()))
-    epsilons = [float(row["epsilon"]) for row in reference_rows]
-    labels = {"geometric": "geometric schedule", "dp": "DP schedule"}
-    offsets = {"geometric": (0, -16), "dp": (0, 12)}
-    vertical_alignment = {"geometric": "top", "dp": "bottom"}
+    epsilons = [float(row["epsilon"]) for row in rows]
+    ratio_rows = [
+        row
+        for row in rows
+        if math.isfinite(float(row["restart_ratio"]))
+    ]
+    ratio_epsilons = [float(row["epsilon"]) for row in ratio_rows]
 
     fig, ax = plt.subplots(figsize=(7.2, 4.8))
-    for schedule in ("geometric", "dp"):
-        if schedule not in rows_by_schedule:
-            continue
-        rows = rows_by_schedule[schedule]
-        ax.plot(
-            [float(row["epsilon"]) for row in rows],
-            [float(row["restart_ratio"]) for row in rows],
-            marker="o" if schedule == "geometric" else "s",
-            linewidth=2.2,
-            color=SCHEDULE_COLORS[schedule],
-            linestyle="-" if schedule == "geometric" else "--",
-            label=labels[schedule],
+    ax.plot(
+        ratio_epsilons,
+        [float(row["restart_ratio"]) for row in ratio_rows],
+        linewidth=2.2,
+        **METHOD_STYLES["entangled"],
+    )
+    ax.axvline(
+        STANDARD_HT_BIAS_BOUND,
+        color="#CC79A7",
+        linestyle=":",
+        linewidth=1.8,
+        label="Standard HT bias bound",
+    )
+    for row in ratio_rows:
+        epsilon = float(row["epsilon"])
+        horizontal_alignment = (
+            "left"
+            if epsilon == max(ratio_epsilons)
+            else "right" if epsilon == min(ratio_epsilons) else "center"
         )
-        for row in rows:
-            ax.annotate(
-                rf"$m\leq {int(float(row['max_m']))}$",
-                xy=(float(row["epsilon"]), float(row["restart_ratio"])),
-                xytext=offsets[schedule],
-                textcoords="offset points",
-                ha="center",
-                va=vertical_alignment[schedule],
-                fontsize=8,
-                color=SCHEDULE_COLORS[schedule],
-                bbox={
-                    "boxstyle": "round,pad=0.12",
-                    "facecolor": "white",
-                    "edgecolor": "none",
-                    "alpha": 0.9,
-                },
-            )
+        ax.annotate(
+            rf"$m\leq {int(float(row['max_m']))}$",
+            xy=(epsilon, float(row["restart_ratio"])),
+            xytext=(0, -16),
+            textcoords="offset points",
+            ha=horizontal_alignment,
+            va="top",
+            fontsize=8,
+            color=METHOD_STYLES["entangled"]["color"],
+        )
     ax.set_xscale("log")
-    ax.set_xlim(1.12 * max(epsilons), min(epsilons) / 1.12)
+    lower_limit = min(min(epsilons), STANDARD_HT_BIAS_BOUND) / 1.12
+    ax.set_xlim(1.12 * max(epsilons), lower_limit)
     ax.set_xlabel(r"target effective-phase accuracy $\epsilon$")
-    ax.set_ylabel("2Q standard restarts / entangled restarts")
+    ax.set_ylabel("Standard HT restarts / Iterative EHT restarts")
     ax.set_title("Imperfect-eigenstate restart saving")
     ax.margins(y=0.20)
     ax.grid(alpha=0.3, which="both")
@@ -415,7 +513,7 @@ def plot_iterative_restart_ratio(
     fig.tight_layout()
     path = save_figure(
         fig,
-        output_dir / "iterative_restart_ratio_comparison_restarts.png",
+        output_dir / "iterative_restart_ratio.png",
     )
     plt.close(fig)
     return path
@@ -423,9 +521,7 @@ def plot_iterative_restart_ratio(
 
 def write_plots(
     *,
-    reference_rows: Sequence[dict[str, float | str]],
-    rows_by_schedule: dict[str, Sequence[dict[str, float | str]]],
-    comparison_curves: Sequence[str],
+    rows: Sequence[dict[str, float | str]],
     output_dir: Path,
 ) -> list[Path]:
     try:
@@ -434,19 +530,11 @@ def write_plots(
 
         paths = [
             plot_iterative_restarts(
-                reference_rows,
-                rows_by_schedule,
+                rows,
                 output_dir,
-                comparison_curves,
             ),
+            plot_iterative_restart_ratio(rows, output_dir),
         ]
-        if rows_by_schedule:
-            paths.append(
-                plot_iterative_restart_ratio(
-                    rows_by_schedule,
-                    output_dir,
-                )
-            )
     except ModuleNotFoundError as exc:
         if exc.name == "matplotlib":
             print("[plot skip] matplotlib is not installed.")
@@ -463,62 +551,27 @@ def write_plots(
 
 def run_planning(
     *,
-    schedule: str,
-    comparison_curves: Sequence[str],
     output_dir: Path,
     make_plots: bool,
 ) -> None:
     print_setup()
-    print(f"primary schedule={schedule}")
-    rows = accuracy_rows(schedule=schedule)
+    print("schedule=geometric")
+    rows = accuracy_rows()
 
-    plotted_schedules = []
+    print_accuracy_table(rows)
     if make_plots:
-        plotted_schedules = [
-            curve for curve in comparison_curves if curve in ("geometric", "dp")
-        ]
-    printed_schedules = list(dict.fromkeys([schedule, *plotted_schedules]))
-    rows_by_schedule = comparison_rows(
-        selected_schedule=schedule,
-        selected_rows=rows,
-        schedules=printed_schedules,
-    )
-
-    for printed_schedule in printed_schedules:
-        print_accuracy_table(
-            rows_by_schedule[printed_schedule],
-            method=printed_schedule,
-        )
-    if make_plots:
-        plotted_rows = {
-            plotted_schedule: rows_by_schedule[plotted_schedule]
-            for plotted_schedule in plotted_schedules
-        }
         write_plots(
-            reference_rows=rows,
-            rows_by_schedule=plotted_rows,
-            comparison_curves=comparison_curves,
+            rows=rows,
             output_dir=output_dir,
         )
 
 
 def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Imperfect-eigenstate planning experiments for entangled HT.",
-    )
-    parser.add_argument(
-        "--schedule",
-        choices=("geometric", "dp"),
-        default=SCHEDULE_METHOD,
-        help="trust-radius schedule optimizer",
-    )
-    parser.add_argument(
-        "--comparison-curves",
-        nargs="+",
-        choices=COMPARISON_CURVE_CHOICES,
-        default=COMPARISON_CURVE_CHOICES,
-        metavar="CURVE",
-        help="curves included in the restart comparison plots",
+        description=(
+            "Compare Standard HT, Fixed-m EHT, and Iterative EHT "
+            "for an imperfect state."
+        ),
     )
     parser.add_argument(
         "--output-dir",
@@ -537,8 +590,6 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
 def main(argv: Iterable[str] | None = None) -> None:
     args = parse_args(argv)
     run_planning(
-        schedule=args.schedule,
-        comparison_curves=args.comparison_curves,
         output_dir=args.output_dir,
         make_plots=not args.no_plots,
     )

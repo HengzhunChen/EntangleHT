@@ -1,10 +1,115 @@
+"""Shot and resource formulas for comparison methods."""
+
 from __future__ import annotations
 
 import math
 
-from .resources import ResourceModel, restarts_from_shots
+from .certification import (
+    contrast_bias_bound,
+    optimized_inversion_radius,
+    shots_for_round,
+)
+from .resources import ResourceModel
 from .utilities import validate_probability
 
+
+# -----------------------------------------------------------------------------
+# Fixed-m Entangled HT
+# -----------------------------------------------------------------------------
+
+def restart_optimal_fixed_amplification(
+    *,
+    initial_bound: float,
+    branch_margin: float,
+    hardware_amplification_cap: int,
+    resources: ResourceModel,
+) -> int:
+    """Fixed amplification minimizing the asymptotic certified restart cost.
+
+    For small target accuracy, the shot count scales as
+    ``1 / (m**2 * cos(m * initial_bound)**2)``. Accounting for parallel
+    packing therefore amounts to maximizing that denominator times
+    ``resources.packing_capacity(m)`` over amplifications satisfying
+    ``m * initial_bound <= branch_margin`` and the hardware-width cap.
+    """
+
+    if not 0.0 < branch_margin < math.pi / 2:
+        raise ValueError(
+            "branch_margin must lie in (0, pi/2), "
+            f"got {branch_margin!r}"
+        )
+    if not 0.0 < initial_bound <= branch_margin:
+        raise ValueError(
+            "initial_bound must lie in (0, branch_margin], "
+            f"got {initial_bound!r}"
+        )
+
+    branch_cap = math.floor(branch_margin / initial_bound)
+    max_amplification = min(
+        branch_cap,
+        resources.effective_m_hw(hardware_amplification_cap),
+    )
+    return max(
+        range(1, max_amplification + 1),
+        key=lambda amplification: (
+            resources.packing_capacity(amplification)
+            * amplification**2
+            * math.cos(amplification * initial_bound) ** 2
+        ),
+    )
+
+
+def fixed_amplification_hadamard_shots(
+    *,
+    epsilon: float,
+    delta: float,
+    amplification: int,
+    p_fail: float,
+) -> int:
+    """Shot bound for exact-state HT at one fixed amplification."""
+
+    inverse_radius = optimized_inversion_radius(
+        m=amplification,
+        delta=delta,
+        epsilon_stat=epsilon,
+    )
+    return shots_for_round(
+        p_fail=p_fail,
+        inverse_radius=inverse_radius,
+    )
+
+
+def imperfect_fixed_amplification_hadamard_shots(
+    *,
+    epsilon: float,
+    delta: float,
+    amplification: int,
+    contrast_lower_bound: float,
+    p_fail: float,
+) -> int:
+    """Shot bound for Fixed-m EHT with certified contrast bias."""
+
+    bias_bound = contrast_bias_bound(
+        amplification,
+        delta,
+        contrast_lower_bound,
+    )
+    statistical_accuracy = epsilon - bias_bound
+    if statistical_accuracy <= 0.0:
+        raise ValueError(
+            "epsilon must exceed the fixed-amplification contrast-bias "
+            f"bound {bias_bound:.10g}"
+        )
+    return fixed_amplification_hadamard_shots(
+        epsilon=statistical_accuracy,
+        delta=delta,
+        amplification=amplification,
+        p_fail=p_fail,
+    )
+
+# -----------------------------------------------------------------------------
+# Standard HT
+# -----------------------------------------------------------------------------
 
 def standard_hadamard_shots(
     *,
@@ -28,6 +133,9 @@ def standard_hadamard_shots(
         )
     )
 
+# -----------------------------------------------------------------------------
+# Two-quadrature HT
+# -----------------------------------------------------------------------------
 
 def two_quadrature_standard_shots(
     *,
@@ -48,7 +156,3 @@ def two_quadrature_standard_shots(
         * math.log(4.0 / p_fail)
     )
     return 2 * shots_per_quadrature
-
-
-def standard_restarts(shots: int, resources: ResourceModel) -> int:
-    return restarts_from_shots(shots, resources.packing_capacity(1))

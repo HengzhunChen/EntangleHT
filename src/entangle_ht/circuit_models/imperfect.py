@@ -3,7 +3,20 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import Any
+
+from ..utilities import phase_error
+
+
+@dataclass(frozen=True)
+class ImperfectModelParameters:
+    """Derived parameters of the imperfect-eigenstate overlap model."""
+
+    contrast: float
+    effective_phase: float
+    contrast_lower_bound: float
+    preparation_floor: float
 
 
 def imperfect_overlap(
@@ -35,6 +48,20 @@ def imperfect_contrast_lower_bound(eta: float) -> float:
     if not 0.0 <= eta < 0.5:
         raise ValueError(f"eta must lie in [0, 1/2), got {eta!r}")
     return 1.0 - 2.0 * eta
+
+
+def imperfect_model_parameters(
+    theta_target: float,
+    eta: float,
+) -> ImperfectModelParameters:
+    """Return the derived parameters used to configure imperfect-state runs."""
+    contrast, effective_phase, _ = imperfect_overlap(theta_target, eta)
+    return ImperfectModelParameters(
+        contrast=contrast,
+        effective_phase=effective_phase,
+        contrast_lower_bound=imperfect_contrast_lower_bound(eta),
+        preparation_floor=abs(phase_error(effective_phase, theta_target)),
+    )
 
 
 def build_imperfect_phase_ghz_circuit(

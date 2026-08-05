@@ -1,7 +1,34 @@
+"""Shared presentation helpers for the runnable examples."""
+
 from __future__ import annotations
 
 import os
 from pathlib import Path
+
+
+METHOD_LABELS = {
+    "standard": "Standard HT",
+    "eht": "EHT",
+    "fixed_m": r"Fixed-$m$ EHT",
+    "entangled": "Iterative EHT",
+}
+METHOD_STYLES = {
+    "standard": {
+        "color": "#6A3D9A",
+        "linestyle": "-.",
+        "marker": "D",
+    },
+    "entangled": {
+        "color": "#0072B2",
+        "linestyle": "-",
+        "marker": "o",
+    },
+    "fixed_m": {
+        "color": "#E69F00",
+        "linestyle": "--",
+        "marker": "^",
+    },
+}
 
 
 def format_count(value: float) -> str:
