@@ -114,12 +114,7 @@ OMEGA_GRID = (
     0.95,
 )
 EPSILON_GRID = (
-    3e-2,
-    2e-2,
-    1e-2,
-    9e-3,
-    5e-3,
-    1e-3,
+    5e-2, 3e-2, 2e-2, 1e-2, 8e-3, 6e-3, 4e-3, 2e-3, 1e-3, 5e-4,
 )
 BASE_SEED = 20260727
 OUTPUT_DIR = Path("outputs/error_decay")

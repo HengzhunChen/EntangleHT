@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Compare Standard HT, Fixed-m EHT, and Iterative EHT for an exact state.
 
-Iterative EHT uses the geometric schedule defined by ``GAMMA_GRID``. Run with
-``--no-plots`` for console tables only, or ``--output-dir`` to choose where the
-figures are written.
+Iterative EHT uses the geometric schedule defined by ``GAMMA_GRID``. CSV tables
+are always written under ``--output-dir``; use ``--no-plots`` to skip figures.
 """
 
 from __future__ import annotations
@@ -38,6 +37,7 @@ from example_utils import (
     configure_matplotlib_cache,
     format_count,
     format_grid_value,
+    save_csv_rows,
     save_figure,
 )
 
@@ -254,6 +254,31 @@ def print_iterative_table(
             f"{row['schedule']}\t"
             f"{float(row['restart_ratio']):.3f}"
         )
+
+
+# *****************************************************************************
+# CSV output
+# *****************************************************************************
+
+def write_csv_results(
+    *,
+    single_rows: Sequence[dict[str, float]],
+    iterative_rows: Sequence[dict[str, float | str]],
+    output_dir: Path,
+) -> list[Path]:
+    paths = [
+        save_csv_rows(
+            single_rows,
+            output_dir / "single_round_comparison.csv",
+        ),
+        save_csv_rows(
+            iterative_rows,
+            output_dir / "iterative_comparison.csv",
+        ),
+    ]
+    for path in paths:
+        print(f"[csv] {path}")
+    return paths
 
 
 # *****************************************************************************
@@ -568,6 +593,11 @@ def run_planning(
 
     print_single_round_table(single_rows)
     print_iterative_table(iter_rows)
+    write_csv_results(
+        single_rows=single_rows,
+        iterative_rows=iter_rows,
+        output_dir=output_dir,
+    )
     if make_plots:
         write_plots(
             single_rows=single_rows,
@@ -587,12 +617,12 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         "--output-dir",
         type=Path,
         default=OUTPUT_DIR,
-        help="directory for generated plots",
+        help="directory for generated CSV files and plots",
     )
     parser.add_argument(
         "--no-plots",
         action="store_true",
-        help="print tables without writing plot files",
+        help="print tables and write CSV files without plot files",
     )
     return parser.parse_args(argv)
 

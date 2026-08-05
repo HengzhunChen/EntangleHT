@@ -3,7 +3,8 @@
 
 The exact and imperfect models use the same phase gate and target eigenstate;
 only the state preparation differs. Iterative EHT uses the geometric schedule
-defined by ``GAMMA_GRID`` and ``OMEGA_GRID``.
+defined by ``GAMMA_GRID`` and ``OMEGA_GRID``. CSV tables are always written
+under ``--output-dir``; use ``--no-plots`` to skip figures.
 """
 
 from __future__ import annotations
@@ -38,6 +39,7 @@ from example_utils import (
     configure_matplotlib_cache,
     format_count,
     format_grid_value,
+    save_csv_rows,
     save_figure,
 )
 
@@ -175,7 +177,12 @@ def accuracy_rows() -> list[dict[str, float | str]]:
             standard_statistical_accuracy = math.nan
             standard_shots = math.nan
             standard_restart_count = math.nan
-        fixed_m_statistical_accuracy = epsilon - FIXED_M_BIAS_BOUND
+        fixed_m_bias_bound = contrast_bias_bound(
+            FIXED_AMPLIFICATION,
+            result.config.initial_bound,
+            result.config.contrast_lower_bound,
+        )
+        fixed_m_statistical_accuracy = epsilon - fixed_m_bias_bound
         if fixed_m_statistical_accuracy > 0.0:
             fixed_m_shots = imperfect_fixed_amplification_hadamard_shots(
                 epsilon=epsilon,
@@ -212,6 +219,7 @@ def accuracy_rows() -> list[dict[str, float | str]]:
                     else math.nan
                 ),
                 "standard_bias_bound": standard_bias_bound,
+                "fixed_m_bias_bound": fixed_m_bias_bound,
                 "standard_statistical_accuracy": standard_statistical_accuracy,
                 "max_m": float(result.max_amplification),
                 "rounds": float(result.rounds),
@@ -346,6 +354,22 @@ def print_accuracy_table(
             f"{row['schedule']}\t"
             f"{restart_ratio_text}"
         )
+
+
+# *****************************************************************************
+# CSV output
+# *****************************************************************************
+
+def write_csv_results(
+    rows: Sequence[dict[str, float | str]],
+    output_dir: Path,
+) -> Path:
+    path = save_csv_rows(
+        rows,
+        output_dir / "iterative_comparison.csv",
+    )
+    print(f"[csv] {path}")
+    return path
 
 
 # *****************************************************************************
@@ -559,6 +583,7 @@ def run_planning(
     rows = accuracy_rows()
 
     print_accuracy_table(rows)
+    write_csv_results(rows, output_dir)
     if make_plots:
         write_plots(
             rows=rows,
@@ -577,12 +602,12 @@ def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
         "--output-dir",
         type=Path,
         default=OUTPUT_DIR,
-        help="directory for generated plots",
+        help="directory for generated CSV files and plots",
     )
     parser.add_argument(
         "--no-plots",
         action="store_true",
-        help="print tables without writing plot files",
+        help="print tables and write CSV files without plot files",
     )
     return parser.parse_args(argv)
 
