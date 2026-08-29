@@ -26,7 +26,7 @@ from entangle_ht.baselines import (
     imperfect_fixed_amplification_hadamard_shots,
     standard_hadamard_shots,
 )
-from entangle_ht.certification import contrast_bias_bound
+from entangle_ht.certification import amplitude_bias_bound
 from entangle_ht.circuit_models.imperfect import (
     imperfect_model_parameters,
 )
@@ -105,14 +105,14 @@ EPSILON_GRID = (
 )
 FIXED_AMPLIFICATION = 2
 MODEL_PARAMETERS = imperfect_model_parameters(THETA_TARGET, ETA)
-# The Standard HT contrast-bias bound is B(1; Delta_0, rho_0). Its statistical
+# The Standard HT amplitude-bias bound is B(1; Delta_0, rho_0). Its statistical
 # budget is positive only when the target accuracy is greater than this bound.
-STANDARD_HT_BIAS_BOUND = contrast_bias_bound(
+STANDARD_HT_AMPLITUDE_BIAS_BOUND = amplitude_bias_bound(
     1,
     INITIAL_BOUND,
     MODEL_PARAMETERS.contrast_lower_bound,
 )
-FIXED_M_BIAS_BOUND = contrast_bias_bound(
+FIXED_M_AMPLITUDE_BIAS_BOUND = amplitude_bias_bound(
     FIXED_AMPLIFICATION,
     INITIAL_BOUND,
     MODEL_PARAMETERS.contrast_lower_bound,
@@ -159,12 +159,12 @@ def accuracy_rows() -> list[dict[str, float | str]]:
     for epsilon in EPSILON_GRID:
         result = plan_schedule(epsilon)
         p_fail = 1.0 - result.config.total_success_probability
-        standard_bias_bound = contrast_bias_bound(
+        standard_amplitude_bias_bound = amplitude_bias_bound(
             1,
             result.config.initial_bound,
             result.config.contrast_lower_bound,
         )
-        standard_statistical_accuracy = epsilon - standard_bias_bound
+        standard_statistical_accuracy = epsilon - standard_amplitude_bias_bound
         if standard_statistical_accuracy > 0.0:
             standard_shots = standard_hadamard_shots(
                 epsilon=standard_statistical_accuracy,
@@ -179,12 +179,14 @@ def accuracy_rows() -> list[dict[str, float | str]]:
             standard_statistical_accuracy = math.nan
             standard_shots = math.nan
             standard_restart_count = math.nan
-        fixed_m_eht_bias_bound = contrast_bias_bound(
+        fixed_m_eht_amplitude_bias_bound = amplitude_bias_bound(
             FIXED_AMPLIFICATION,
             result.config.initial_bound,
             result.config.contrast_lower_bound,
         )
-        fixed_m_eht_statistical_accuracy = epsilon - fixed_m_eht_bias_bound
+        fixed_m_eht_statistical_accuracy = (
+            epsilon - fixed_m_eht_amplitude_bias_bound
+        )
         if fixed_m_eht_statistical_accuracy > 0.0:
             fixed_m_eht_shots = imperfect_fixed_amplification_hadamard_shots(
                 epsilon=epsilon,
@@ -220,8 +222,12 @@ def accuracy_rows() -> list[dict[str, float | str]]:
                     if fixed_m_eht_statistical_accuracy > 0.0
                     else math.nan
                 ),
-                "standard_bias_bound": standard_bias_bound,
-                "fixed_m_eht_bias_bound": fixed_m_eht_bias_bound,
+                "standard_amplitude_bias_bound": (
+                    standard_amplitude_bias_bound
+                ),
+                "fixed_m_eht_amplitude_bias_bound": (
+                    fixed_m_eht_amplitude_bias_bound
+                ),
                 "standard_statistical_accuracy": standard_statistical_accuracy,
                 "max_m": float(result.max_amplification),
                 "rounds": float(result.rounds),
@@ -264,13 +270,13 @@ def print_setup() -> None:
         f"{MODEL_PARAMETERS.preparation_floor:.6g}"
     )
     print(
-        "SHT contrast-bias bound="
-        f"{STANDARD_HT_BIAS_BOUND:.10g}; "
+        "SHT amplitude-bias bound="
+        f"{STANDARD_HT_AMPLITUDE_BIAS_BOUND:.10g}; "
         f"epsilon grid={EPSILON_GRID}"
     )
     print(
-        f"EHT (m={FIXED_AMPLIFICATION}) contrast-bias bound="
-        f"{FIXED_M_BIAS_BOUND:.10g}; "
+        f"EHT (m={FIXED_AMPLIFICATION}) amplitude-bias bound="
+        f"{FIXED_M_AMPLITUDE_BIAS_BOUND:.10g}; "
         f"kappa(m)={RESOURCES.packing_capacity(FIXED_AMPLIFICATION)}"
     )
     print(
@@ -421,18 +427,18 @@ def plot_iterative_restarts(
         **METHOD_STYLES["adaptive_eht"],
     )
     ax.axvline(
-        STANDARD_HT_BIAS_BOUND,
+        STANDARD_HT_AMPLITUDE_BIAS_BOUND,
         color=REFERENCE_COLOR,
         linestyle=":",
         linewidth=1.8,
-        label="SHT bias bound",
+        label="SHT amplitude-bias bound",
     )
     ax.axvline(
-        FIXED_M_BIAS_BOUND,
+        FIXED_M_AMPLITUDE_BIAS_BOUND,
         color=REFERENCE_COLOR,
         linestyle="-.",
         linewidth=1.8,
-        label=rf"{METHOD_LABELS['fixed_m_eht']} bias bound "
+        label=rf"{METHOD_LABELS['fixed_m_eht']} amplitude-bias bound "
         rf"($m={FIXED_AMPLIFICATION}$)",
     )
     for row in rows:
@@ -461,7 +467,9 @@ def plot_iterative_restarts(
         )
     ax.set_xscale("log")
     ax.set_yscale("log")
-    lower_limit = min(min(epsilons), STANDARD_HT_BIAS_BOUND) / 1.20
+    lower_limit = (
+        min(min(epsilons), STANDARD_HT_AMPLITUDE_BIAS_BOUND) / 1.20
+    )
     ax.set_xlim(1.12 * max(epsilons), lower_limit)
     ax.set_xticks((3e-2, 1e-2, 3e-3))
     ax.set_xticklabels(
@@ -505,11 +513,11 @@ def plot_iterative_restart_ratio(
         **METHOD_STYLES["adaptive_eht"],
     )
     ax.axvline(
-        STANDARD_HT_BIAS_BOUND,
+        STANDARD_HT_AMPLITUDE_BIAS_BOUND,
         color=REFERENCE_COLOR,
         linestyle=":",
         linewidth=1.8,
-        label="SHT bias bound",
+        label="SHT amplitude-bias bound",
     )
     for row in ratio_rows:
         epsilon = float(row["epsilon"])
@@ -529,7 +537,9 @@ def plot_iterative_restart_ratio(
             color=METHOD_STYLES["adaptive_eht"]["color"],
         )
     ax.set_xscale("log")
-    lower_limit = min(min(epsilons), STANDARD_HT_BIAS_BOUND) / 1.12
+    lower_limit = (
+        min(min(epsilons), STANDARD_HT_AMPLITUDE_BIAS_BOUND) / 1.12
+    )
     ax.set_xlim(1.12 * max(epsilons), lower_limit)
     ax.set_xlabel(r"target effective-phase accuracy")
     ax.set_ylabel("SHT restarts / AEHT restarts")

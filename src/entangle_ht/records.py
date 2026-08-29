@@ -51,7 +51,7 @@ class RoundPlan:
     bound_after: float
     amplification: int
     statistical_accuracy: float
-    bias_budget: float
+    amplitude_bias_budget: float
     shots: int
     restarts: int
     inverse_radius: float

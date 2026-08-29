@@ -6,7 +6,7 @@ import math
 from typing import Sequence
 
 from ..certification import (
-    contrast_bias_bound,
+    amplitude_bias_bound,
     optimized_inversion_radius,
     shots_for_round,
 )
@@ -45,21 +45,21 @@ def _select_round(
     for omega in omegas:
         if omega is None:
             statistical_accuracy = bound_after
-            bias_budget = 0.0
+            amplitude_bias_budget = 0.0
         else:
             if not 0.0 < omega < 1.0:
                 continue
             statistical_accuracy = omega * bound_after
-            bias_budget = (1.0 - omega) * bound_after
+            amplitude_bias_budget = (1.0 - omega) * bound_after
 
         for amplification in range(1, search_cap + 1):
             if amplification * bound_before > config.branch_margin:
                 continue
-            if omega is not None and contrast_bias_bound(
+            if omega is not None and amplitude_bias_bound(
                 amplification,
                 bound_before,
                 config.contrast_lower_bound,
-            ) > bias_budget:
+            ) > amplitude_bias_budget:
                 continue
 
             inverse_radius = optimized_inversion_radius(
@@ -81,7 +81,7 @@ def _select_round(
                 bound_after=bound_after,
                 amplification=amplification,
                 statistical_accuracy=statistical_accuracy,
-                bias_budget=bias_budget,
+                amplitude_bias_budget=amplitude_bias_budget,
                 shots=shots,
                 restarts=restarts,
                 inverse_radius=inverse_radius,

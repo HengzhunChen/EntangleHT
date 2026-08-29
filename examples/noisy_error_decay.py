@@ -46,7 +46,7 @@ from error_decay import (
     simulate_exact,
     simulate_imperfect,
 )
-from entangle_ht.certification import contrast_bias_bound
+from entangle_ht.certification import amplitude_bias_bound
 from entangle_ht.circuit_models.imperfect import (
     imperfect_model_parameters,
 )
@@ -136,7 +136,7 @@ IMPERFECT_BASE_CONFIG = replace(
     contrast=MODEL_PARAMETERS.contrast,
     contrast_lower_bound=MODEL_PARAMETERS.contrast_lower_bound,
 )
-STANDARD_HT_BIAS_BOUND = contrast_bias_bound(
+STANDARD_HT_AMPLITUDE_BIAS_BOUND = amplitude_bias_bound(
     1,
     INITIAL_BOUND,
     MODEL_PARAMETERS.contrast_lower_bound,
@@ -329,7 +329,9 @@ def main(argv: Sequence[str] | None = None) -> None:
                 args.output_dir,
                 experiment_label="Noisy",
                 filename_prefix="noisy",
-                standard_bias_bound=STANDARD_HT_BIAS_BOUND,
+                standard_amplitude_bias_bound=(
+                    STANDARD_HT_AMPLITUDE_BIAS_BOUND
+                ),
             )
         return
     if args.command == "plot":
@@ -346,7 +348,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             args.output_dir,
             experiment_label="Noisy",
             filename_prefix="noisy",
-            standard_bias_bound=STANDARD_HT_BIAS_BOUND,
+            standard_amplitude_bias_bound=STANDARD_HT_AMPLITUDE_BIAS_BOUND,
         )
         return
     raise ValueError(f"unknown command {args.command!r}")

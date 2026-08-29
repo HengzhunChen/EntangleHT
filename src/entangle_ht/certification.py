@@ -7,8 +7,8 @@ import math
 from .utilities import validate_probability
 
 
-def contrast_bias_bound(m: int, delta_t: float, rho0: float) -> float:
-    """Certified bias bound B(m; Delta_t, rho0)."""
+def amplitude_bias_bound(m: int, delta_t: float, rho0: float) -> float:
+    """Certified amplitude-bias bound B(m; Delta_t, rho0)."""
     if m < 1:
         raise ValueError(f"m must be at least 1, got {m!r}")
     if delta_t <= 0.0:

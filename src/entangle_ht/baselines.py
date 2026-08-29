@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 
 from .certification import (
-    contrast_bias_bound,
+    amplitude_bias_bound,
     optimized_inversion_radius,
     shots_for_round,
 )
@@ -87,18 +87,18 @@ def imperfect_fixed_amplification_hadamard_shots(
     contrast_lower_bound: float,
     p_fail: float,
 ) -> int:
-    """Shot bound for Fixed-m EHT with certified contrast bias."""
+    """Shot bound for Fixed-m EHT with certified amplitude bias."""
 
-    bias_bound = contrast_bias_bound(
+    amplitude_bias = amplitude_bias_bound(
         amplification,
         delta,
         contrast_lower_bound,
     )
-    statistical_accuracy = epsilon - bias_bound
+    statistical_accuracy = epsilon - amplitude_bias
     if statistical_accuracy <= 0.0:
         raise ValueError(
-            "epsilon must exceed the fixed-amplification contrast-bias "
-            f"bound {bias_bound:.10g}"
+            "epsilon must exceed the fixed-amplification amplitude-bias "
+            f"bound {amplitude_bias:.10g}"
         )
     return fixed_amplification_hadamard_shots(
         epsilon=statistical_accuracy,

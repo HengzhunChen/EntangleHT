@@ -22,13 +22,13 @@ def clipped_arcsin_estimate(theta_ref: float, signal: float, amplification: int)
     return theta_ref + math.asin(clipped_signal) / amplification
 
 
-def standard_ht_infinite_shot_bias(
+def standard_ht_infinite_shot_amplitude_bias(
     *,
     contrast: float,
     effective_phase: float,
     theta_ref: float,
 ) -> float:
-    """Return the limiting bias of contrast-unaware one-quadrature HT."""
+    """Return the limiting amplitude bias of amplitude-unaware 1Q HT."""
     residual = phase_error(effective_phase, theta_ref)
     expected_signal = contrast * math.sin(residual)
     limiting_estimate = clipped_arcsin_estimate(
@@ -159,7 +159,7 @@ def run_one_quadrature_imperfect_standard(
     simulator: Any,
     seed: int,
 ) -> EstimateResult:
-    """Run the contrast-unaware 1Q baseline on an imperfect state."""
+    """Run the amplitude-unaware 1Q baseline on an imperfect state."""
     _, theta_psi, _ = imperfect_overlap(
         theta_target=theta_target,
         eta=eta,

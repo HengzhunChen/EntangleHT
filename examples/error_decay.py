@@ -13,7 +13,7 @@ Commands and options:
     --output-dir PATH         Set the figure directory.
 
 The imperfect-state comparison reports effective-phase error and includes a
-contrast-unaware Standard HT baseline so its nonzero bias can be seen.
+amplitude-unaware Standard HT baseline so its nonzero bias can be seen.
 
 Examples:
   python error_decay.py run --force --plot
@@ -39,7 +39,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from entangle_ht.baselines import standard_hadamard_shots
-from entangle_ht.certification import contrast_bias_bound
+from entangle_ht.certification import amplitude_bias_bound
 from entangle_ht.circuit_models.imperfect import (
     imperfect_model_parameters,
 )
@@ -178,7 +178,7 @@ IMPERFECT_BASE_CONFIG = replace(
     contrast=MODEL_PARAMETERS.contrast,
     contrast_lower_bound=MODEL_PARAMETERS.contrast_lower_bound,
 )
-STANDARD_HT_BIAS_BOUND = contrast_bias_bound(
+STANDARD_HT_AMPLITUDE_BIAS_BOUND = amplitude_bias_bound(
     1,
     INITIAL_BOUND,
     MODEL_PARAMETERS.contrast_lower_bound,
@@ -347,7 +347,7 @@ def simulate_imperfect(
         omega_grid=omega_grid,
         resources=resources,
     )
-    # Standard HT spends epsilon only on statistical error and ignores contrast
+    # Standard HT spends epsilon only on statistical error and ignores amplitude
     # bias. Decreasing epsilon therefore exposes its fixed infinite-shot bias.
     standard_shots = standard_hadamard_shots(
         epsilon=epsilon,
@@ -526,7 +526,7 @@ def plot_rows(
     *,
     experiment_label: str = "Noiseless",
     filename_prefix: str = "noiseless",
-    standard_bias_bound: float,
+    standard_amplitude_bias_bound: float,
 ) -> None:
     if not rows:
         raise ValueError("no rows to plot")
@@ -578,10 +578,10 @@ def plot_rows(
         )
         if model == "imperfect":
             ax.axhline(
-                standard_bias_bound,
+                standard_amplitude_bias_bound,
                 color=REFERENCE_COLOR,
                 linestyle=":",
-                label="SHT bias bound",
+                label="SHT amplitude-bias bound",
             )
         ax.set_xscale("log")
         ax.set_yscale("log")
@@ -613,7 +613,7 @@ def plot_rows(
             target_tolerances = [float(row["epsilon"]) for row in method_rows]
             if model == "imperfect" and method == "standard":
                 target_tolerances = [
-                    epsilon + standard_bias_bound
+                    epsilon + standard_amplitude_bias_bound
                     for epsilon in target_tolerances
                 ]
             target_style = RESTART_ACCURACY_STYLES[(method, "target")]
@@ -634,10 +634,10 @@ def plot_rows(
             )
         if model == "imperfect":
             ax.axhline(
-                standard_bias_bound,
+                standard_amplitude_bias_bound,
                 color=REFERENCE_COLOR,
                 linestyle=":",
-                label="SHT bias bound",
+                label="SHT amplitude-bias bound",
             )
         ax.set_xscale("log")
         ax.set_yscale("log")
@@ -761,7 +761,9 @@ def main(argv: Sequence[str] | None = None) -> None:
             plot_rows(
                 rows,
                 args.output_dir,
-                standard_bias_bound=STANDARD_HT_BIAS_BOUND,
+                standard_amplitude_bias_bound=(
+                    STANDARD_HT_AMPLITUDE_BIAS_BOUND
+                ),
             )
         return
     if args.command == "plot":
@@ -771,7 +773,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         plot_rows(
             rows,
             args.output_dir,
-            standard_bias_bound=STANDARD_HT_BIAS_BOUND,
+            standard_amplitude_bias_bound=STANDARD_HT_AMPLITUDE_BIAS_BOUND,
         )
         return
     raise ValueError(f"unknown command {args.command!r}")
