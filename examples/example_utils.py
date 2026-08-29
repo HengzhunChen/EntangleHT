@@ -9,28 +9,41 @@ from typing import Mapping, Sequence
 
 
 METHOD_LABELS = {
-    "standard": "Standard HT",
-    "eht": "EHT",
-    "fixed_m": r"Fixed-$m$ EHT",
-    "entangled": "Iterative EHT",
+    "standard": "SHT",
+    "single_round_eht": "EHT",
+    "fixed_m_eht": "EHT",
+    "adaptive_eht": "AEHT",
 }
+METHOD_COLORS = {
+    "standard": "#EE6677",
+    "single_round_eht": "#228833",
+    "fixed_m_eht": "#228833",
+    "adaptive_eht": "#4477AA",
+}
+REFERENCE_COLOR = "#666666"
 METHOD_STYLES = {
     "standard": {
-        "color": "#6A3D9A",
-        "linestyle": "-.",
+        "color": METHOD_COLORS["standard"],
+        "linestyle": "-",
         "marker": "D",
     },
-    "entangled": {
-        "color": "#0072B2",
+    "single_round_eht": {
+        "color": METHOD_COLORS["single_round_eht"],
+        "linestyle": "-",
+        "marker": "^",
+    },
+    "adaptive_eht": {
+        "color": METHOD_COLORS["adaptive_eht"],
         "linestyle": "-",
         "marker": "o",
     },
-    "fixed_m": {
-        "color": "#E69F00",
-        "linestyle": "--",
+    "fixed_m_eht": {
+        "color": METHOD_COLORS["fixed_m_eht"],
+        "linestyle": "-",
         "marker": "^",
     },
 }
+ANNOTATION_FONT_SIZE = 12
 
 
 def format_count(value: float) -> str:
@@ -42,11 +55,31 @@ def format_grid_value(value: float) -> str:
 
 
 def configure_matplotlib_cache() -> None:
-    if "MPLCONFIGDIR" in os.environ:
-        return
-    cache_dir = Path(".cache/matplotlib")
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    os.environ["MPLCONFIGDIR"] = str(cache_dir.resolve())
+    if "MPLCONFIGDIR" not in os.environ:
+        cache_dir = Path(".cache/matplotlib")
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        os.environ["MPLCONFIGDIR"] = str(cache_dir.resolve())
+
+    import matplotlib
+
+    matplotlib.rcParams.update(
+        {
+            "font.family": "serif",
+            "font.serif": [
+                "Times New Roman",
+                "Times",
+                "Nimbus Roman",
+                "STIXGeneral",
+                "DejaVu Serif",
+            ],
+            "font.size": 14,
+            "axes.labelsize": 16,
+            "xtick.labelsize": 15,
+            "ytick.labelsize": 15,
+            "legend.fontsize": 13,
+            "mathtext.fontset": "stix",
+        }
+    )
 
 
 def save_figure(fig, output_path: Path, *, dpi: int = 180) -> Path:

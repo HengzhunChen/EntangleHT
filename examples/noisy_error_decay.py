@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Noisy error decay for Standard HT and Iterative EHT.
+"""Noisy error decay for Standard HT and Adaptive EHT.
 
 Commands and options:
   run                              Simulate selected state models and append CSV rows.
@@ -17,7 +17,7 @@ Commands and options:
     --models MODEL [...]           Select state models to plot.
     --output-dir PATH              Set the figure directory.
 
-The imperfect-state plot uses effective-phase error. It compares Iterative EHT
+The imperfect-state plot uses effective-phase error. It compares Adaptive EHT
 with a fixed-reference Standard HT baseline.
 With no model option, only the imperfect-state experiment is run and plotted.
 
@@ -46,15 +46,13 @@ from error_decay import (
     simulate_exact,
     simulate_imperfect,
 )
+from entangle_ht.certification import contrast_bias_bound
 from entangle_ht.circuit_models.imperfect import (
     imperfect_model_parameters,
 )
 from entangle_ht.records import EstimationConfig
 from entangle_ht.resources import ResourceModel
-from entangle_ht.simulation import (
-    require_qiskit_aer,
-    standard_ht_infinite_shot_bias,
-)
+from entangle_ht.simulation import require_qiskit_aer
 
 
 # *****************************************************************************
@@ -103,9 +101,9 @@ OMEGA_GRID = (
     0.95,
 )
 EPSILON_GRID = (
-    5e-2, 3e-2, 2e-2, 1e-2, 7e-3, 5e-3, 3e-3, 2e-3, 1e-3
+    5e-2, 3e-2, 2e-2, 1e-2, 7e-3, 5e-3, 3e-3, 2e-3, 1e-3, 8e-4
 )
-BASE_SEED = 20260727
+BASE_SEED = 20260812
 
 NOISY_OUTPUT_DIR = Path("outputs/noisy_error_decay")
 NOISY_CSV_PATH = NOISY_OUTPUT_DIR / "noisy_error_decay.csv"
@@ -138,10 +136,10 @@ IMPERFECT_BASE_CONFIG = replace(
     contrast=MODEL_PARAMETERS.contrast,
     contrast_lower_bound=MODEL_PARAMETERS.contrast_lower_bound,
 )
-STANDARD_HT_INFINITE_SHOT_BIAS = standard_ht_infinite_shot_bias(
-    contrast=MODEL_PARAMETERS.contrast,
-    effective_phase=MODEL_PARAMETERS.effective_phase,
-    theta_ref=INITIAL_REFERENCE,
+STANDARD_HT_BIAS_BOUND = contrast_bias_bound(
+    1,
+    INITIAL_BOUND,
+    MODEL_PARAMETERS.contrast_lower_bound,
 )
 
 
@@ -217,7 +215,7 @@ def run_noisy_simulations(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Noisy error decay for Standard HT and Iterative EHT.",
+        description="Noisy error decay for Standard HT and Adaptive EHT.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -331,7 +329,7 @@ def main(argv: Sequence[str] | None = None) -> None:
                 args.output_dir,
                 experiment_label="Noisy",
                 filename_prefix="noisy",
-                standard_infinite_shot_bias=STANDARD_HT_INFINITE_SHOT_BIAS,
+                standard_bias_bound=STANDARD_HT_BIAS_BOUND,
             )
         return
     if args.command == "plot":
@@ -348,7 +346,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             args.output_dir,
             experiment_label="Noisy",
             filename_prefix="noisy",
-            standard_infinite_shot_bias=STANDARD_HT_INFINITE_SHOT_BIAS,
+            standard_bias_bound=STANDARD_HT_BIAS_BOUND,
         )
         return
     raise ValueError(f"unknown command {args.command!r}")

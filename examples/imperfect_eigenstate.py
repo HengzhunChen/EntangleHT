@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Compare Standard HT, Fixed-m EHT, and Iterative EHT for an imperfect state.
+"""Compare Standard HT, Fixed-m EHT, and Adaptive EHT for an imperfect state.
 
 The exact and imperfect models use the same phase gate and target eigenstate;
-only the state preparation differs. Iterative EHT uses the geometric schedule
+only the state preparation differs. Adaptive EHT uses the geometric schedule
 defined by ``GAMMA_GRID`` and ``OMEGA_GRID``. CSV tables are always written
 under ``--output-dir``; use ``--no-plots`` to skip figures.
 """
@@ -34,8 +34,10 @@ from entangle_ht.planning import optimize_imperfect_geometric
 from entangle_ht.records import EstimationConfig, ScheduleResult
 from entangle_ht.resources import ResourceModel, restarts_from_shots
 from example_utils import (
+    ANNOTATION_FONT_SIZE,
     METHOD_LABELS,
     METHOD_STYLES,
+    REFERENCE_COLOR,
     configure_matplotlib_cache,
     format_count,
     format_grid_value,
@@ -177,27 +179,27 @@ def accuracy_rows() -> list[dict[str, float | str]]:
             standard_statistical_accuracy = math.nan
             standard_shots = math.nan
             standard_restart_count = math.nan
-        fixed_m_bias_bound = contrast_bias_bound(
+        fixed_m_eht_bias_bound = contrast_bias_bound(
             FIXED_AMPLIFICATION,
             result.config.initial_bound,
             result.config.contrast_lower_bound,
         )
-        fixed_m_statistical_accuracy = epsilon - fixed_m_bias_bound
-        if fixed_m_statistical_accuracy > 0.0:
-            fixed_m_shots = imperfect_fixed_amplification_hadamard_shots(
+        fixed_m_eht_statistical_accuracy = epsilon - fixed_m_eht_bias_bound
+        if fixed_m_eht_statistical_accuracy > 0.0:
+            fixed_m_eht_shots = imperfect_fixed_amplification_hadamard_shots(
                 epsilon=epsilon,
                 delta=result.config.initial_bound,
                 amplification=FIXED_AMPLIFICATION,
                 contrast_lower_bound=result.config.contrast_lower_bound,
                 p_fail=p_fail,
             )
-            fixed_m_restarts = restarts_from_shots(
-                fixed_m_shots,
+            fixed_m_eht_restarts = restarts_from_shots(
+                fixed_m_eht_shots,
                 RESOURCES.packing_capacity(FIXED_AMPLIFICATION),
             )
         else:
-            fixed_m_shots = math.nan
-            fixed_m_restarts = math.nan
+            fixed_m_eht_shots = math.nan
+            fixed_m_eht_restarts = math.nan
         schedule_label = (
             f"gamma={format_grid_value(result.gamma or 0.0)}, "
             f"omega={format_grid_value(result.omega or 0.0)}"
@@ -205,21 +207,21 @@ def accuracy_rows() -> list[dict[str, float | str]]:
         rows.append(
             {
                 "epsilon": epsilon,
-                "entangled_shots": float(result.plan.total_shots),
+                "adaptive_eht_shots": float(result.plan.total_shots),
                 "standard_shots": float(standard_shots),
-                "entangled_queries": float(result.plan.total_queries),
+                "adaptive_eht_queries": float(result.plan.total_queries),
                 "standard_queries": float(standard_shots),
-                "entangled_restarts": float(result.restarts),
+                "adaptive_eht_restarts": float(result.restarts),
                 "standard_restarts": float(standard_restart_count),
-                "fixed_m_shots": float(fixed_m_shots),
-                "fixed_m_restarts": float(fixed_m_restarts),
-                "fixed_m_statistical_accuracy": (
-                    fixed_m_statistical_accuracy
-                    if fixed_m_statistical_accuracy > 0.0
+                "fixed_m_eht_shots": float(fixed_m_eht_shots),
+                "fixed_m_eht_restarts": float(fixed_m_eht_restarts),
+                "fixed_m_eht_statistical_accuracy": (
+                    fixed_m_eht_statistical_accuracy
+                    if fixed_m_eht_statistical_accuracy > 0.0
                     else math.nan
                 ),
                 "standard_bias_bound": standard_bias_bound,
-                "fixed_m_bias_bound": fixed_m_bias_bound,
+                "fixed_m_eht_bias_bound": fixed_m_eht_bias_bound,
                 "standard_statistical_accuracy": standard_statistical_accuracy,
                 "max_m": float(result.max_amplification),
                 "rounds": float(result.rounds),
@@ -262,12 +264,12 @@ def print_setup() -> None:
         f"{MODEL_PARAMETERS.preparation_floor:.6g}"
     )
     print(
-        "Standard HT contrast-bias bound="
+        "SHT contrast-bias bound="
         f"{STANDARD_HT_BIAS_BOUND:.10g}; "
         f"epsilon grid={EPSILON_GRID}"
     )
     print(
-        f"Fixed-m EHT (m={FIXED_AMPLIFICATION}) contrast-bias bound="
+        f"EHT (m={FIXED_AMPLIFICATION}) contrast-bias bound="
         f"{FIXED_M_BIAS_BOUND:.10g}; "
         f"kappa(m)={RESOURCES.packing_capacity(FIXED_AMPLIFICATION)}"
     )
@@ -283,13 +285,13 @@ def print_accuracy_table(
     rows: Sequence[dict[str, float | str]],
 ) -> None:
     print()
-    print("Iterative imperfect-eigenstate comparison")
+    print("Adaptive imperfect-eigenstate comparison")
     print(
-        "epsilon\tStandard stat eps\tFixed-m EHT stat eps\t"
-        "Iterative EHT shots\tIterative EHT queries\tStandard shots\t"
-        "Fixed-m EHT shots\tIterative EHT restarts\tStandard restarts\t"
-        "Fixed-m EHT restarts\tmax_m\trounds\tschedule\t"
-        "Standard/Iterative EHT"
+        "epsilon\tSHT stat eps\tEHT stat eps\t"
+        "AEHT shots\tAEHT queries\tSHT shots\t"
+        "EHT shots\tAEHT restarts\tSHT restarts\t"
+        "EHT restarts\tmax_m\trounds\tschedule\t"
+        "SHT/AEHT"
     )
     for row in rows:
         standard_statistical_accuracy = float(
@@ -298,11 +300,11 @@ def print_accuracy_table(
         standard_shots = float(row["standard_shots"])
         standard_restarts = float(row["standard_restarts"])
         restart_ratio = float(row["restart_ratio"])
-        fixed_m_statistical_accuracy = float(
-            row["fixed_m_statistical_accuracy"]
+        fixed_m_eht_statistical_accuracy = float(
+            row["fixed_m_eht_statistical_accuracy"]
         )
-        fixed_m_shots = float(row["fixed_m_shots"])
-        fixed_m_restarts = float(row["fixed_m_restarts"])
+        fixed_m_eht_shots = float(row["fixed_m_eht_shots"])
+        fixed_m_eht_restarts = float(row["fixed_m_eht_restarts"])
         standard_statistical_text = (
             f"{standard_statistical_accuracy:.6g}"
             if math.isfinite(standard_statistical_accuracy)
@@ -323,32 +325,32 @@ def print_accuracy_table(
             if math.isfinite(restart_ratio)
             else "--"
         )
-        fixed_m_statistical_text = (
-            f"{fixed_m_statistical_accuracy:.6g}"
-            if math.isfinite(fixed_m_statistical_accuracy)
+        fixed_m_eht_statistical_text = (
+            f"{fixed_m_eht_statistical_accuracy:.6g}"
+            if math.isfinite(fixed_m_eht_statistical_accuracy)
             else "--"
         )
-        fixed_m_shots_text = (
-            format_count(fixed_m_shots)
-            if math.isfinite(fixed_m_shots)
+        fixed_m_eht_shots_text = (
+            format_count(fixed_m_eht_shots)
+            if math.isfinite(fixed_m_eht_shots)
             else "--"
         )
-        fixed_m_restarts_text = (
-            format_count(fixed_m_restarts)
-            if math.isfinite(fixed_m_restarts)
+        fixed_m_eht_restarts_text = (
+            format_count(fixed_m_eht_restarts)
+            if math.isfinite(fixed_m_eht_restarts)
             else "--"
         )
         print(
             f"{float(row['epsilon']):.6g}\t"
             f"{standard_statistical_text}\t"
-            f"{fixed_m_statistical_text}\t"
-            f"{format_count(float(row['entangled_shots']))}\t"
-            f"{format_count(float(row['entangled_queries']))}\t"
+            f"{fixed_m_eht_statistical_text}\t"
+            f"{format_count(float(row['adaptive_eht_shots']))}\t"
+            f"{format_count(float(row['adaptive_eht_queries']))}\t"
             f"{standard_shots_text}\t"
-            f"{fixed_m_shots_text}\t"
-            f"{format_count(float(row['entangled_restarts']))}\t"
+            f"{fixed_m_eht_shots_text}\t"
+            f"{format_count(float(row['adaptive_eht_restarts']))}\t"
             f"{standard_restarts_text}\t"
-            f"{fixed_m_restarts_text}\t"
+            f"{fixed_m_eht_restarts_text}\t"
             f"{int(float(row['max_m']))}\t"
             f"{int(float(row['rounds']))}\t"
             f"{row['schedule']}\t"
@@ -389,12 +391,12 @@ def plot_iterative_restarts(
         for row in rows
         if math.isfinite(float(row["standard_restarts"]))
     ]
-    fixed_m_rows = [
+    fixed_m_eht_rows = [
         row
         for row in rows
-        if math.isfinite(float(row["fixed_m_restarts"]))
+        if math.isfinite(float(row["fixed_m_eht_restarts"]))
     ]
-    entangled = [float(row["entangled_restarts"]) for row in rows]
+    adaptive_eht = [float(row["adaptive_eht_restarts"]) for row in rows]
 
     fig, ax = plt.subplots(figsize=(7.2, 4.8))
     ax.plot(
@@ -405,32 +407,32 @@ def plot_iterative_restarts(
         **METHOD_STYLES["standard"],
     )
     ax.plot(
-        [float(row["epsilon"]) for row in fixed_m_rows],
-        [float(row["fixed_m_restarts"]) for row in fixed_m_rows],
+        [float(row["epsilon"]) for row in fixed_m_eht_rows],
+        [float(row["fixed_m_eht_restarts"]) for row in fixed_m_eht_rows],
         linewidth=2.0,
-        label=rf"{METHOD_LABELS['fixed_m']} ($m={FIXED_AMPLIFICATION}$)",
-        **METHOD_STYLES["fixed_m"],
+        label=rf"{METHOD_LABELS['fixed_m_eht']} ($m={FIXED_AMPLIFICATION}$)",
+        **METHOD_STYLES["fixed_m_eht"],
     )
     ax.plot(
         epsilons,
-        entangled,
+        adaptive_eht,
         linewidth=2.0,
-        label=METHOD_LABELS["entangled"],
-        **METHOD_STYLES["entangled"],
+        label=METHOD_LABELS["adaptive_eht"],
+        **METHOD_STYLES["adaptive_eht"],
     )
     ax.axvline(
         STANDARD_HT_BIAS_BOUND,
-        color=METHOD_STYLES["standard"]["color"],
+        color=REFERENCE_COLOR,
         linestyle=":",
         linewidth=1.8,
-        label="Standard HT bias bound",
+        label="SHT bias bound",
     )
     ax.axvline(
         FIXED_M_BIAS_BOUND,
-        color=METHOD_STYLES["fixed_m"]["color"],
-        linestyle=":",
+        color=REFERENCE_COLOR,
+        linestyle="-.",
         linewidth=1.8,
-        label=rf"{METHOD_LABELS['fixed_m']} bias bound "
+        label=rf"{METHOD_LABELS['fixed_m_eht']} bias bound "
         rf"($m={FIXED_AMPLIFICATION}$)",
     )
     for row in rows:
@@ -440,15 +442,16 @@ def plot_iterative_restarts(
             if epsilon == max(epsilons)
             else "right" if epsilon == min(epsilons) else "center"
         )
+        horizontal_offset = 10 if epsilon == min(epsilons) else 0
         ax.annotate(
             rf"$m\leq {int(float(row['max_m']))}$",
-            xy=(epsilon, float(row["entangled_restarts"])),
-            xytext=(0, -12),
+            xy=(epsilon, float(row["adaptive_eht_restarts"])),
+            xytext=(horizontal_offset, -12),
             textcoords="offset points",
             ha=horizontal_alignment,
             va="top",
-            fontsize=8,
-            color=METHOD_STYLES["entangled"]["color"],
+            fontsize=ANNOTATION_FONT_SIZE,
+            color=METHOD_STYLES["adaptive_eht"]["color"],
             bbox={
                 "boxstyle": "round,pad=0.1",
                 "facecolor": "white",
@@ -464,11 +467,11 @@ def plot_iterative_restarts(
     ax.set_xticklabels(
         (r"$3\times10^{-2}$", r"$10^{-2}$", r"$3\times10^{-3}$")
     )
-    ax.set_xlabel(r"target effective-phase accuracy $\epsilon$")
+    ax.set_xlabel(r"target effective-phase accuracy")
     ax.set_ylabel("device restarts")
-    ax.set_title("Imperfect-eigenstate restart count")
     ax.margins(y=0.15)
-    ax.grid(alpha=0.3, which="both")
+    ax.grid(alpha=0.28, which="major")
+    ax.grid(alpha=0.12, which="minor")
     ax.legend()
     fig.tight_layout()
     path = save_figure(
@@ -499,14 +502,14 @@ def plot_iterative_restart_ratio(
         ratio_epsilons,
         [float(row["restart_ratio"]) for row in ratio_rows],
         linewidth=2.2,
-        **METHOD_STYLES["entangled"],
+        **METHOD_STYLES["adaptive_eht"],
     )
     ax.axvline(
         STANDARD_HT_BIAS_BOUND,
-        color="#CC79A7",
+        color=REFERENCE_COLOR,
         linestyle=":",
         linewidth=1.8,
-        label="Standard HT bias bound",
+        label="SHT bias bound",
     )
     for row in ratio_rows:
         epsilon = float(row["epsilon"])
@@ -522,17 +525,17 @@ def plot_iterative_restart_ratio(
             textcoords="offset points",
             ha=horizontal_alignment,
             va="top",
-            fontsize=8,
-            color=METHOD_STYLES["entangled"]["color"],
+            fontsize=ANNOTATION_FONT_SIZE,
+            color=METHOD_STYLES["adaptive_eht"]["color"],
         )
     ax.set_xscale("log")
     lower_limit = min(min(epsilons), STANDARD_HT_BIAS_BOUND) / 1.12
     ax.set_xlim(1.12 * max(epsilons), lower_limit)
-    ax.set_xlabel(r"target effective-phase accuracy $\epsilon$")
-    ax.set_ylabel("Standard HT restarts / Iterative EHT restarts")
-    ax.set_title("Imperfect-eigenstate restart saving")
+    ax.set_xlabel(r"target effective-phase accuracy")
+    ax.set_ylabel("SHT restarts / AEHT restarts")
     ax.margins(y=0.20)
-    ax.grid(alpha=0.3, which="both")
+    ax.grid(alpha=0.28, which="major")
+    ax.grid(alpha=0.12, which="minor")
     ax.legend()
     fig.tight_layout()
     path = save_figure(
@@ -594,7 +597,7 @@ def run_planning(
 def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Compare Standard HT, Fixed-m EHT, and Iterative EHT "
+            "Compare Standard HT, Fixed-m EHT, and Adaptive EHT "
             "for an imperfect state."
         ),
     )

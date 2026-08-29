@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Compare Standard HT, Fixed-m EHT, and Iterative EHT for an exact state.
+"""Compare Standard HT, Fixed-m EHT, and Adaptive EHT for an exact state.
 
-Iterative EHT uses the geometric schedule defined by ``GAMMA_GRID``. CSV tables
+Adaptive EHT uses the geometric schedule defined by ``GAMMA_GRID``. CSV tables
 are always written under ``--output-dir``; use ``--no-plots`` to skip figures.
 """
 
@@ -32,8 +32,10 @@ from entangle_ht.planning import (
 from entangle_ht.records import EstimationConfig, ScheduleResult
 from entangle_ht.resources import ResourceModel, restarts_from_shots
 from example_utils import (
+    ANNOTATION_FONT_SIZE,
     METHOD_LABELS,
     METHOD_STYLES,
+    REFERENCE_COLOR,
     configure_matplotlib_cache,
     format_count,
     format_grid_value,
@@ -51,7 +53,7 @@ INITIAL_REFERENCE = 1.8
 INITIAL_BOUND = 0.2
 P_SUCCESS_TOTAL = 0.95
 BRANCH_MARGIN = math.pi / 4
-M_HW = 100
+M_HW = 1250
 RESOURCES = ResourceModel(device_qubits=2500, system_qubits=1)
 FIXED_AMPLIFICATION = restart_optimal_fixed_amplification(
     initial_bound=INITIAL_BOUND,
@@ -126,13 +128,13 @@ def single_round_rows() -> list[dict[str, float]]:
             resources=RESOURCES,
         )
         m_t = round_plan.amplification
-        entangled_shots = round_plan.shots
+        single_round_eht_shots = round_plan.shots
         standard_shots = standard_hadamard_shots(
             epsilon=SINGLE_ROUND_EPSILON,
             delta=delta,
             p_fail=1.0 - P_SUCCESS_TOTAL,
         )
-        entangled_restarts = round_plan.restarts
+        single_round_eht_restarts = round_plan.restarts
         standard_restart_count = restarts_from_shots(
             standard_shots,
             RESOURCES.packing_capacity(1),
@@ -141,14 +143,20 @@ def single_round_rows() -> list[dict[str, float]]:
             {
                 "delta": delta,
                 "amplification": float(m_t),
-                "entangled_shots": float(entangled_shots),
+                "single_round_eht_shots": float(single_round_eht_shots),
                 "standard_shots": float(standard_shots),
-                "entangled_queries": float(m_t * entangled_shots),
+                "single_round_eht_queries": float(
+                    m_t * single_round_eht_shots
+                ),
                 "standard_queries": float(standard_shots),
-                "entangled_restarts": float(entangled_restarts),
+                "single_round_eht_restarts": float(
+                    single_round_eht_restarts
+                ),
                 "standard_restarts": float(standard_restart_count),
-                "shot_ratio": standard_shots / entangled_shots,
-                "restart_ratio": standard_restart_count / entangled_restarts,
+                "shot_ratio": standard_shots / single_round_eht_shots,
+                "restart_ratio": (
+                    standard_restart_count / single_round_eht_restarts
+                ),
             }
         )
     return rows
@@ -164,7 +172,7 @@ def iterative_rows() -> list[dict[str, float | str]]:
             delta=result.config.initial_bound,
             p_fail=p_fail,
         )
-        fixed_m_shots = fixed_amplification_hadamard_shots(
+        fixed_m_eht_shots = fixed_amplification_hadamard_shots(
             epsilon=epsilon,
             delta=result.config.initial_bound,
             amplification=FIXED_AMPLIFICATION,
@@ -174,25 +182,25 @@ def iterative_rows() -> list[dict[str, float | str]]:
             standard_shots,
             RESOURCES.packing_capacity(1),
         )
-        fixed_m_restarts = restarts_from_shots(
-            fixed_m_shots,
+        fixed_m_eht_restarts = restarts_from_shots(
+            fixed_m_eht_shots,
             RESOURCES.packing_capacity(FIXED_AMPLIFICATION),
         )
         schedule_label = f"gamma={format_grid_value(result.gamma or 0.0)}"
         rows.append(
             {
                 "epsilon": epsilon,
-                "entangled_shots": float(result.plan.total_shots),
+                "adaptive_eht_shots": float(result.plan.total_shots),
                 "standard_shots": float(standard_shots),
-                "fixed_m_shots": float(fixed_m_shots),
-                "entangled_queries": float(result.plan.total_queries),
+                "fixed_m_eht_shots": float(fixed_m_eht_shots),
+                "adaptive_eht_queries": float(result.plan.total_queries),
                 "standard_queries": float(standard_shots),
-                "fixed_m_queries": float(
-                    FIXED_AMPLIFICATION * fixed_m_shots
+                "fixed_m_eht_queries": float(
+                    FIXED_AMPLIFICATION * fixed_m_eht_shots
                 ),
-                "entangled_restarts": float(result.restarts),
+                "adaptive_eht_restarts": float(result.restarts),
                 "standard_restarts": float(standard_restart_count),
-                "fixed_m_restarts": float(fixed_m_restarts),
+                "fixed_m_eht_restarts": float(fixed_m_eht_restarts),
                 "max_m": float(result.max_amplification),
                 "rounds": float(result.rounds),
                 "schedule": schedule_label,
@@ -218,11 +226,11 @@ def print_single_round_table(rows: Sequence[dict[str, float]]) -> None:
         print(
             f"{row['delta']:.6g}\t"
             f"{int(row['amplification'])}\t"
-            f"{format_count(row['entangled_shots'])}\t"
+            f"{format_count(row['single_round_eht_shots'])}\t"
             f"{format_count(row['standard_shots'])}\t"
-            f"{format_count(row['entangled_queries'])}\t"
+            f"{format_count(row['single_round_eht_queries'])}\t"
             f"{row['shot_ratio']:.3f}\t"
-            f"{format_count(row['entangled_restarts'])}\t"
+            f"{format_count(row['single_round_eht_restarts'])}\t"
             f"{format_count(row['standard_restarts'])}\t"
             f"{row['restart_ratio']:.3f}"
         )
@@ -232,23 +240,23 @@ def print_iterative_table(
     rows: Sequence[dict[str, float | str]],
 ) -> None:
     print()
-    print("Iterative exact-eigenstate comparison")
+    print("Adaptive exact-eigenstate comparison")
     print(
-        "epsilon\tIterative EHT shots\tIterative EHT queries\tStandard shots\t"
-        "Fixed-m EHT shots\tIterative EHT restarts\tStandard restarts\t"
-        "Fixed-m EHT restarts\tmax_m\trounds\tschedule\t"
-        "Standard/Iterative EHT restarts"
+        "epsilon\tAEHT shots\tAEHT queries\tSHT shots\t"
+        "EHT shots\tAEHT restarts\tSHT restarts\t"
+        "EHT restarts\tmax_m\trounds\tschedule\t"
+        "SHT/AEHT restarts"
     )
     for row in rows:
         print(
             f"{float(row['epsilon']):.6g}\t"
-            f"{format_count(float(row['entangled_shots']))}\t"
-            f"{format_count(float(row['entangled_queries']))}\t"
+            f"{format_count(float(row['adaptive_eht_shots']))}\t"
+            f"{format_count(float(row['adaptive_eht_queries']))}\t"
             f"{format_count(float(row['standard_shots']))}\t"
-            f"{format_count(float(row['fixed_m_shots']))}\t"
-            f"{format_count(float(row['entangled_restarts']))}\t"
+            f"{format_count(float(row['fixed_m_eht_shots']))}\t"
+            f"{format_count(float(row['adaptive_eht_restarts']))}\t"
             f"{format_count(float(row['standard_restarts']))}\t"
-            f"{format_count(float(row['fixed_m_restarts']))}\t"
+            f"{format_count(float(row['fixed_m_eht_restarts']))}\t"
             f"{int(float(row['max_m']))}\t"
             f"{int(float(row['rounds']))}\t"
             f"{row['schedule']}\t"
@@ -293,7 +301,7 @@ def plot_single_round_restarts(
     import matplotlib.pyplot as plt
 
     deltas = [row["delta"] for row in rows]
-    entangled = [row["entangled_restarts"] for row in rows]
+    single_round_eht = [row["single_round_eht_restarts"] for row in rows]
     standard = [row["standard_restarts"] for row in rows]
 
     fig, ax = plt.subplots(figsize=(7.2, 4.8))
@@ -306,27 +314,27 @@ def plot_single_round_restarts(
     )
     ax.plot(
         deltas,
-        entangled,
+        single_round_eht,
         linewidth=2.0,
-        label=METHOD_LABELS["eht"],
-        **METHOD_STYLES["entangled"],
+        label=METHOD_LABELS["single_round_eht"],
+        **METHOD_STYLES["single_round_eht"],
     )
     for row in rows:
         ax.annotate(
             f"m={int(row['amplification'])}",
-            xy=(row["delta"], row["entangled_restarts"]),
+            xy=(row["delta"], row["single_round_eht_restarts"]),
             xytext=(0, 7),
             textcoords="offset points",
             ha="center",
-            fontsize=8,
+            fontsize=ANNOTATION_FONT_SIZE,
         )
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlim(max(deltas), min(deltas))
     ax.set_xlabel(r"reference bound $\Delta$")
     ax.set_ylabel("device restarts")
-    ax.set_title("Single-round exact-eigenstate restart count")
-    ax.grid(alpha=0.3, which="both")
+    ax.grid(alpha=0.28, which="major")
+    ax.grid(alpha=0.12, which="minor")
     ax.legend()
     fig.tight_layout()
     path = save_figure(fig, output_dir / "single_round_restarts_vs_delta.png")
@@ -343,8 +351,8 @@ def plot_iterative_restarts(
 
     epsilons = [float(row["epsilon"]) for row in rows]
     standard = [float(row["standard_restarts"]) for row in rows]
-    fixed_m = [float(row["fixed_m_restarts"]) for row in rows]
-    entangled = [float(row["entangled_restarts"]) for row in rows]
+    fixed_m_eht = [float(row["fixed_m_eht_restarts"]) for row in rows]
+    adaptive_eht = [float(row["adaptive_eht_restarts"]) for row in rows]
 
     fig, ax = plt.subplots(figsize=(7.2, 4.8))
     ax.plot(
@@ -356,17 +364,17 @@ def plot_iterative_restarts(
     )
     ax.plot(
         epsilons,
-        fixed_m,
+        fixed_m_eht,
         linewidth=2.0,
-        label=rf"{METHOD_LABELS['fixed_m']} ($m={FIXED_AMPLIFICATION}$)",
-        **METHOD_STYLES["fixed_m"],
+        label=rf"{METHOD_LABELS['fixed_m_eht']} ($m={FIXED_AMPLIFICATION}$)",
+        **METHOD_STYLES["fixed_m_eht"],
     )
     ax.plot(
         epsilons,
-        entangled,
+        adaptive_eht,
         linewidth=2.0,
-        label=METHOD_LABELS["entangled"],
-        **METHOD_STYLES["entangled"],
+        label=METHOD_LABELS["adaptive_eht"],
+        **METHOD_STYLES["adaptive_eht"],
     )
     for row in rows:
         epsilon = float(row["epsilon"])
@@ -377,22 +385,22 @@ def plot_iterative_restarts(
         )
         ax.annotate(
             rf"$m\leq {int(float(row['max_m']))}$",
-            xy=(epsilon, float(row["entangled_restarts"])),
+            xy=(epsilon, float(row["adaptive_eht_restarts"])),
             xytext=(0, -14),
             textcoords="offset points",
             ha=horizontal_alignment,
             va="top",
-            fontsize=8,
-            color=METHOD_STYLES["entangled"]["color"],
+            fontsize=ANNOTATION_FONT_SIZE,
+            color=METHOD_STYLES["adaptive_eht"]["color"],
         )
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlim(1.12 * max(epsilons), min(epsilons) / 1.12)
-    ax.set_xlabel(r"target accuracy $\epsilon$")
+    ax.set_xlabel(r"target accuracy")
     ax.set_ylabel("device restarts")
-    ax.set_title("Iterative exact-eigenstate restart count")
     ax.margins(y=0.15)
-    ax.grid(alpha=0.3, which="both")
+    ax.grid(alpha=0.28, which="major")
+    ax.grid(alpha=0.12, which="minor")
     ax.legend()
     fig.tight_layout()
     path = save_figure(
@@ -417,7 +425,7 @@ def plot_iterative_restart_ratio(
         epsilons,
         [float(row["restart_ratio"]) for row in rows],
         linewidth=2.2,
-        **METHOD_STYLES["entangled"],
+        **METHOD_STYLES["adaptive_eht"],
     )
     for row in rows:
         epsilon = float(row["epsilon"])
@@ -433,16 +441,16 @@ def plot_iterative_restart_ratio(
             textcoords="offset points",
             ha=horizontal_alignment,
             va="top",
-            fontsize=8,
-            color=METHOD_STYLES["entangled"]["color"],
+            fontsize=ANNOTATION_FONT_SIZE,
+            color=METHOD_STYLES["adaptive_eht"]["color"],
         )
     ax.set_xscale("log")
     ax.set_xlim(1.12 * max(epsilons), min(epsilons) / 1.12)
-    ax.set_xlabel(r"target accuracy $\epsilon$")
-    ax.set_ylabel("Standard HT restarts / Iterative EHT restarts")
-    ax.set_title("Iterative exact-eigenstate restart saving")
+    ax.set_xlabel(r"target accuracy")
+    ax.set_ylabel("SHT restarts / AEHT restarts")
     ax.margins(y=0.20)
-    ax.grid(alpha=0.3, which="both")
+    ax.grid(alpha=0.28, which="major")
+    ax.grid(alpha=0.12, which="minor")
     fig.tight_layout()
     path = save_figure(
         fig,
@@ -460,18 +468,20 @@ def plot_schedule_structure(
     import matplotlib.pyplot as plt
 
     rounds = [round_plan.round_index for round_plan in result.plan.rounds]
-    deltas = [round_plan.bound_before for round_plan in result.plan.rounds]
+    target_accuracies = [
+        round_plan.statistical_accuracy for round_plan in result.plan.rounds
+    ]
     amplifications = [round_plan.amplification for round_plan in result.plan.rounds]
 
-    fig, ax_delta = plt.subplots(figsize=(7.2, 4.8))
-    ax_m = ax_delta.twinx()
-    ax_delta.plot(
+    fig, ax_accuracy = plt.subplots(figsize=(7.2, 4.8))
+    ax_m = ax_accuracy.twinx()
+    ax_accuracy.plot(
         rounds,
-        deltas,
+        target_accuracies,
         marker="o",
         linewidth=2.0,
         color="tab:blue",
-        label=r"$\Delta_t$",
+        label=r"$\Delta_{t+1}$",
     )
     ax_m.step(
         rounds,
@@ -490,29 +500,26 @@ def plot_schedule_structure(
             textcoords="offset points",
             ha="center",
             va="bottom",
-            fontsize=8,
+            fontsize=ANNOTATION_FONT_SIZE,
             color="black",
         )
-    ax_delta.axhline(
+    ax_accuracy.axhline(
         result.config.target_accuracy,
-        color="tab:blue",
+        color=REFERENCE_COLOR,
         linestyle=":",
         linewidth=1.2,
-        label=r"target $\epsilon$",
+        label=r"target accuracy",
     )
-    ax_delta.set_yscale("log")
-    ax_delta.set_xlabel(r"round $t$")
-    ax_delta.set_ylabel(r"certified bound $\Delta_t$")
+    ax_accuracy.set_yscale("log")
+    ax_accuracy.set_xlabel(r"round $t$")
+    ax_accuracy.set_ylabel(r"target round accuracy $\Delta_{t+1}$")
     ax_m.set_ylabel(r"amplification $m_t$")
-    ax_delta.set_title(
-        rf"Exact-eigenstate schedule structure, "
-        rf"$\epsilon={result.config.target_accuracy:g}$"
-    )
-    ax_delta.grid(alpha=0.3, which="both")
+    ax_accuracy.grid(alpha=0.28, which="major")
+    ax_accuracy.grid(alpha=0.12, which="minor")
 
-    lines_delta, labels_delta = ax_delta.get_legend_handles_labels()
+    lines_delta, labels_delta = ax_accuracy.get_legend_handles_labels()
     lines_m, labels_m = ax_m.get_legend_handles_labels()
-    ax_delta.legend(
+    ax_accuracy.legend(
         lines_delta + lines_m,
         labels_delta + labels_m,
         loc="upper center",
@@ -609,7 +616,7 @@ def run_planning(
 def parse_args(argv: Iterable[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Compare Standard HT, Fixed-m EHT, and Iterative EHT "
+            "Compare Standard HT, Fixed-m EHT, and Adaptive EHT "
             "for an exact eigenstate."
         ),
     )

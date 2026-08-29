@@ -12,11 +12,12 @@ progressively stronger GHZ-based phase amplification. The repository includes
 experiments for both accurately prepared eigenstates and imperfect state
 preparation, as can arise in quantum algorithms such as VQE.
 
-The numerical studies compare Standard Hadamard Testing, fixed-amplification
-Entangled Hadamard Testing, and Iterative Entangled Hadamard Testing. The main
-resource metric is the number of packed device restarts, which accounts for
-the number of independent circuit instances that can be executed in parallel
-on a finite-width quantum device.
+The numerical studies compare Standard Hadamard Test (SHT),
+fixed-amplification Entangled Hadamard Test (EHT), and Adaptive
+Entangled Hadamard Test (AEHT). The main resource metric is the number
+of packed device restarts, which accounts for the number of independent
+circuit instances that can be executed in parallel on a finite-width
+quantum device.
 
 ## Installation
 

@@ -144,7 +144,7 @@ def optimize_exact_dp(
     resources: ResourceModel,
     grid_size: int,
     max_rounds: int,
-    label: str = "exact_entangled_dp",
+    label: str = "exact_adaptive_eht_dp",
 ) -> ScheduleResult:
     """Find the restart-minimizing exact DP schedule."""
     return _optimize_dp(
@@ -170,7 +170,7 @@ def optimize_imperfect_dp(
     omega_grid: Sequence[float],
     grid_size: int,
     max_rounds: int,
-    label: str = "imperfect_entangled_dp",
+    label: str = "imperfect_adaptive_eht_dp",
 ) -> ScheduleResult:
     """Find the restart-minimizing imperfect DP schedule."""
     return _optimize_dp(

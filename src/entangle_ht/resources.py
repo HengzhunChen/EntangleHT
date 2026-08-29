@@ -10,7 +10,7 @@ from .records import TrialPlan
 class ResourceModel:
     """Device-width model used to convert shots into packed restarts."""
 
-    device_qubits: int = 2000
+    device_qubits: int = 2500
     system_qubits: int = 1
 
     def __post_init__(self) -> None:

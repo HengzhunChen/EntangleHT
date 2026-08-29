@@ -87,7 +87,7 @@ def optimize_exact_geometric(
     base_config: EstimationConfig,
     gamma_grid: Sequence[float],
     resources: ResourceModel,
-    label: str = "exact_entangled_geometric",
+    label: str = "exact_adaptive_eht_geometric",
 ) -> ScheduleResult:
     """Find the restart-minimizing exact geometric schedule."""
     best: tuple[tuple[int, int, int], float, TrialPlan] | None = None
@@ -130,7 +130,7 @@ def optimize_imperfect_geometric(
     gamma_grid: Sequence[float],
     omega_grid: Sequence[float],
     resources: ResourceModel,
-    label: str = "imperfect_entangled_geometric",
+    label: str = "imperfect_adaptive_eht_geometric",
 ) -> ScheduleResult:
     """Find the restart-minimizing imperfect geometric schedule."""
     best: tuple[tuple[int, int, int], float, float, TrialPlan] | None = None

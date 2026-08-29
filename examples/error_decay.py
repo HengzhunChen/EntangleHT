@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Noiseless error decay for Standard HT and Iterative EHT.
+"""Noiseless error decay for Standard HT and Adaptive EHT.
 
 Commands and options:
   run                         Simulate both state models and append CSV rows.
@@ -39,6 +39,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from entangle_ht.baselines import standard_hadamard_shots
+from entangle_ht.certification import contrast_bias_bound
 from entangle_ht.circuit_models.imperfect import (
     imperfect_model_parameters,
 )
@@ -55,11 +56,12 @@ from entangle_ht.simulation import (
     run_imperfect_plan,
     run_one_quadrature_exact_standard,
     run_one_quadrature_imperfect_standard,
-    standard_ht_infinite_shot_bias,
 )
 from example_utils import (
+    METHOD_COLORS,
     METHOD_LABELS,
     METHOD_STYLES,
+    REFERENCE_COLOR,
     configure_matplotlib_cache,
     save_figure,
 )
@@ -121,7 +123,37 @@ OUTPUT_DIR = Path("outputs/error_decay")
 CSV_PATH = OUTPUT_DIR / "noiseless_error_decay.csv"
 
 
-METHODS = ("entangled", "standard")
+METHODS = ("adaptive_eht", "standard")
+RESTART_ACCURACY_STYLES = {
+    ("standard", "target"): {
+        "color": METHOD_COLORS["standard"],
+        "linestyle": "--",
+        "marker": "D",
+        "markerfacecolor": "white",
+        "markeredgecolor": METHOD_COLORS["standard"],
+        "markeredgewidth": 1.5,
+    },
+    ("adaptive_eht", "target"): {
+        "color": METHOD_COLORS["adaptive_eht"],
+        "linestyle": "--",
+        "marker": "o",
+        "markerfacecolor": "white",
+        "markeredgecolor": METHOD_COLORS["adaptive_eht"],
+        "markeredgewidth": 1.5,
+    },
+    ("standard", "actual"): {
+        "color": METHOD_COLORS["standard"],
+        "linestyle": "-",
+        "marker": "D",
+        "markerfacecolor": METHOD_COLORS["standard"],
+    },
+    ("adaptive_eht", "actual"): {
+        "color": METHOD_COLORS["adaptive_eht"],
+        "linestyle": "-",
+        "marker": "o",
+        "markerfacecolor": METHOD_COLORS["adaptive_eht"],
+    },
+}
 
 
 # *****************************************************************************
@@ -146,10 +178,10 @@ IMPERFECT_BASE_CONFIG = replace(
     contrast=MODEL_PARAMETERS.contrast,
     contrast_lower_bound=MODEL_PARAMETERS.contrast_lower_bound,
 )
-STANDARD_HT_INFINITE_SHOT_BIAS = standard_ht_infinite_shot_bias(
-    contrast=MODEL_PARAMETERS.contrast,
-    effective_phase=MODEL_PARAMETERS.effective_phase,
-    theta_ref=INITIAL_REFERENCE,
+STANDARD_HT_BIAS_BOUND = contrast_bias_bound(
+    1,
+    INITIAL_BOUND,
+    MODEL_PARAMETERS.contrast_lower_bound,
 )
 
 
@@ -209,10 +241,14 @@ def load_rows(path: Path) -> list[dict[str, float | str]]:
             )
         rows = list(reader)
     numeric = set(FIELDNAMES) - {"model", "method"}
-    return [
+    converted_rows = [
         {key: (float(value) if key in numeric else value) for key, value in row.items()}
         for row in rows
     ]
+    for row in converted_rows:
+        if row["method"] == "entangled":
+            row["method"] = "adaptive_eht"
+    return converted_rows
 
 
 # *****************************************************************************
@@ -243,13 +279,13 @@ def simulate_exact(
     simulator = build_simulator(simulator_kwargs)
 
     start = time.perf_counter()
-    entangled = run_exact_plan(
+    adaptive_eht = run_exact_plan(
         config=result.config,
         plan=result.plan,
         simulator=simulator,
         seed=seed,
     )
-    entangled_seconds = time.perf_counter() - start
+    adaptive_eht_seconds = time.perf_counter() - start
 
     start = time.perf_counter()
     standard = run_one_quadrature_exact_standard(
@@ -264,14 +300,14 @@ def simulate_exact(
         result_row(
             model="exact",
             epsilon=epsilon,
-            method="entangled",
+            method="adaptive_eht",
             shots=result.plan.total_shots,
             restarts=result.restarts,
             rounds=result.rounds,
             max_m=result.max_amplification,
-            effective_error=entangled.effective_error,
-            target_error=entangled.target_error,
-            seconds=entangled_seconds,
+            effective_error=adaptive_eht.effective_error,
+            target_error=adaptive_eht.target_error,
+            seconds=adaptive_eht_seconds,
             simulator_kwargs=simulator_kwargs,
         ),
         result_row(
@@ -323,7 +359,7 @@ def simulate_imperfect(
     simulator = build_simulator(simulator_kwargs)
 
     start = time.perf_counter()
-    entangled = run_imperfect_plan(
+    adaptive_eht = run_imperfect_plan(
         config=result.config,
         plan=result.plan,
         theta_target=theta_target,
@@ -331,7 +367,7 @@ def simulate_imperfect(
         simulator=simulator,
         seed=seed,
     )
-    entangled_seconds = time.perf_counter() - start
+    adaptive_eht_seconds = time.perf_counter() - start
 
     start = time.perf_counter()
     standard = run_one_quadrature_imperfect_standard(
@@ -347,14 +383,14 @@ def simulate_imperfect(
         result_row(
             model="imperfect",
             epsilon=epsilon,
-            method="entangled",
+            method="adaptive_eht",
             shots=result.plan.total_shots,
             restarts=result.restarts,
             rounds=result.rounds,
             max_m=result.max_amplification,
-            effective_error=entangled.effective_error,
-            target_error=entangled.target_error,
-            seconds=entangled_seconds,
+            effective_error=adaptive_eht.effective_error,
+            target_error=adaptive_eht.target_error,
+            seconds=adaptive_eht_seconds,
             simulator_kwargs=simulator_kwargs,
         ),
         result_row(
@@ -467,14 +503,14 @@ def error_plot_semantics(
     if model == "exact":
         return (
             "target_error",
-            r"target phase accuracy $\epsilon$",
+            r"target phase accuracy",
             "absolute phase error",
             f"{experiment_label} exact-eigenstate phase error decay",
         )
     if model == "imperfect":
         return (
             "effective_error",
-            r"target effective-phase accuracy $\epsilon$",
+            r"target effective-phase accuracy",
             "absolute effective-phase error",
             (
                 f"{experiment_label} imperfect-eigenstate "
@@ -490,7 +526,7 @@ def plot_rows(
     *,
     experiment_label: str = "Noiseless",
     filename_prefix: str = "noiseless",
-    standard_infinite_shot_bias: float,
+    standard_bias_bound: float,
 ) -> None:
     if not rows:
         raise ValueError("no rows to plot")
@@ -508,7 +544,7 @@ def plot_rows(
         if not model_rows:
             continue
 
-        error_field, x_label, y_label, title = error_plot_semantics(
+        error_field, x_label, y_label, _title = error_plot_semantics(
             model,
             experiment_label,
         )
@@ -536,16 +572,16 @@ def plot_rows(
         ax.plot(
             epsilons,
             epsilons,
-            color="#4D4D4D",
+            color=REFERENCE_COLOR,
             linestyle="--",
-            label=r"target $\epsilon$",
+            label=r"target accuracy",
         )
         if model == "imperfect":
             ax.axhline(
-                standard_infinite_shot_bias,
-                color="#CC79A7",
+                standard_bias_bound,
+                color=REFERENCE_COLOR,
                 linestyle=":",
-                label="Standard HT infinite-shot bias",
+                label="SHT bias bound",
             )
         ax.set_xscale("log")
         ax.set_yscale("log")
@@ -553,8 +589,8 @@ def plot_rows(
             ax.set_xlim(max(epsilons), min(epsilons))
         ax.set_xlabel(x_label)
         ax.set_ylabel(y_label)
-        ax.set_title(title)
-        ax.grid(alpha=0.3, which="both")
+        ax.grid(alpha=0.28, which="major")
+        ax.grid(alpha=0.12, which="minor")
         ax.legend()
         fig.tight_layout()
         path = save_figure(
@@ -563,6 +599,82 @@ def plot_rows(
         )
         plt.close(fig)
         print(f"[plot] {path}")
+
+        fig, ax = plt.subplots(figsize=(8, 5))
+        for method in METHODS:
+            method_rows = sorted(
+                [row for row in model_rows if row["method"] == method],
+                key=lambda row: float(row["restarts"]),
+            )
+            if not method_rows:
+                continue
+            label = METHOD_LABELS[method]
+            restarts = [float(row["restarts"]) for row in method_rows]
+            target_tolerances = [float(row["epsilon"]) for row in method_rows]
+            if model == "imperfect" and method == "standard":
+                target_tolerances = [
+                    epsilon + standard_bias_bound
+                    for epsilon in target_tolerances
+                ]
+            target_style = RESTART_ACCURACY_STYLES[(method, "target")]
+            ax.plot(
+                restarts,
+                target_tolerances,
+                linewidth=2.0,
+                label=rf"{label} target tolerance",
+                **target_style,
+            )
+            actual_style = RESTART_ACCURACY_STYLES[(method, "actual")]
+            ax.plot(
+                restarts,
+                [max(float(row[error_field]), 1e-16) for row in method_rows],
+                linewidth=2.0,
+                label=f"{label} actual error",
+                **actual_style,
+            )
+        if model == "imperfect":
+            ax.axhline(
+                standard_bias_bound,
+                color=REFERENCE_COLOR,
+                linestyle=":",
+                label="SHT bias bound",
+            )
+        ax.set_xscale("log")
+        ax.set_yscale("log")
+        ax.set_xlabel("device restarts required for target accuracy")
+        ax.set_ylabel(restart_accuracy_ylabel(model))
+        ax.grid(alpha=0.28, which="major")
+        ax.grid(alpha=0.12, which="minor")
+        ax.legend()
+        fig.tight_layout()
+        path = save_figure(
+            fig,
+            output_dir / f"{filename_prefix}_{model}_restart_accuracy.png",
+        )
+        plt.close(fig)
+        print(f"[plot] {path}")
+
+
+def restart_accuracy_ylabel(model: str) -> str:
+    if model == "exact":
+        return "phase error magnitude"
+    if model == "imperfect":
+        return "effective-phase error magnitude"
+    raise ValueError(f"unknown state model {model!r}")
+
+
+def restart_accuracy_title(
+    model: str,
+    experiment_label: str,
+) -> str:
+    if model == "exact":
+        return f"{experiment_label} exact-eigenstate accuracy versus restarts"
+    if model == "imperfect":
+        return (
+            f"{experiment_label} imperfect-eigenstate effective accuracy "
+            "versus restarts"
+        )
+    raise ValueError(f"unknown state model {model!r}")
 
 
 # *****************************************************************************
@@ -575,7 +687,7 @@ def parse_float_list(values: Iterable[str]) -> list[float]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Noiseless error decay for Standard HT and Iterative EHT.",
+        description="Noiseless error decay for Standard HT and Adaptive EHT.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -649,7 +761,7 @@ def main(argv: Sequence[str] | None = None) -> None:
             plot_rows(
                 rows,
                 args.output_dir,
-                standard_infinite_shot_bias=STANDARD_HT_INFINITE_SHOT_BIAS,
+                standard_bias_bound=STANDARD_HT_BIAS_BOUND,
             )
         return
     if args.command == "plot":
@@ -659,7 +771,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         plot_rows(
             rows,
             args.output_dir,
-            standard_infinite_shot_bias=STANDARD_HT_INFINITE_SHOT_BIAS,
+            standard_bias_bound=STANDARD_HT_BIAS_BOUND,
         )
         return
     raise ValueError(f"unknown command {args.command!r}")
