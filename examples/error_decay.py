@@ -581,7 +581,7 @@ def plot_rows(
                 standard_amplitude_bias_bound,
                 color=REFERENCE_COLOR,
                 linestyle=":",
-                label="SHT amplitude-bias bound",
+                label="SHT bias bound",
             )
         ax.set_xscale("log")
         ax.set_yscale("log")
@@ -637,7 +637,7 @@ def plot_rows(
                 standard_amplitude_bias_bound,
                 color=REFERENCE_COLOR,
                 linestyle=":",
-                label="SHT amplitude-bias bound",
+                label="SHT bias bound",
             )
         ax.set_xscale("log")
         ax.set_yscale("log")

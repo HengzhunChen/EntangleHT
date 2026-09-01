@@ -431,14 +431,14 @@ def plot_iterative_restarts(
         color=REFERENCE_COLOR,
         linestyle=":",
         linewidth=1.8,
-        label="SHT amplitude-bias bound",
+        label="SHT bias bound",
     )
     ax.axvline(
         FIXED_M_AMPLITUDE_BIAS_BOUND,
         color=REFERENCE_COLOR,
         linestyle="-.",
         linewidth=1.8,
-        label=rf"{METHOD_LABELS['fixed_m_eht']} amplitude-bias bound "
+        label=rf"{METHOD_LABELS['fixed_m_eht']} bias bound "
         rf"($m={FIXED_AMPLIFICATION}$)",
     )
     for row in rows:
@@ -517,7 +517,7 @@ def plot_iterative_restart_ratio(
         color=REFERENCE_COLOR,
         linestyle=":",
         linewidth=1.8,
-        label="SHT amplitude-bias bound",
+        label="SHT bias bound",
     )
     for row in ratio_rows:
         epsilon = float(row["epsilon"])

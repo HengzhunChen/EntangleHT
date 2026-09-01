@@ -481,7 +481,7 @@ def plot_schedule_structure(
         marker="o",
         linewidth=2.0,
         color="tab:blue",
-        label=r"$\Delta_{t+1}$",
+        label=r"$\epsilon_t$",
     )
     ax_m.step(
         rounds,
@@ -512,14 +512,19 @@ def plot_schedule_structure(
     )
     ax_accuracy.set_yscale("log")
     ax_accuracy.set_xlabel(r"round $t$")
-    ax_accuracy.set_ylabel(r"target round accuracy $\Delta_{t+1}$")
+    # STIX aliases the epsilon variants in Matplotlib; use Computer Modern for
+    # this symbol so ``\epsilon`` matches its standard LaTeX rendering.
+    ax_accuracy.set_ylabel(
+        r"target round accuracy $\epsilon_t$",
+        math_fontfamily="cm",
+    )
     ax_m.set_ylabel(r"amplification $m_t$")
     ax_accuracy.grid(alpha=0.28, which="major")
     ax_accuracy.grid(alpha=0.12, which="minor")
 
     lines_delta, labels_delta = ax_accuracy.get_legend_handles_labels()
     lines_m, labels_m = ax_m.get_legend_handles_labels()
-    ax_accuracy.legend(
+    legend = ax_accuracy.legend(
         lines_delta + lines_m,
         labels_delta + labels_m,
         loc="upper center",
@@ -527,6 +532,9 @@ def plot_schedule_structure(
         ncol=3,
         frameon=True,
     )
+    for legend_text in legend.get_texts():
+        if r"\epsilon_t" in legend_text.get_text():
+            legend_text.set_math_fontfamily("cm")
     fig.tight_layout()
     path = save_figure(
         fig,

@@ -101,9 +101,9 @@ OMEGA_GRID = (
     0.95,
 )
 EPSILON_GRID = (
-    5e-2, 3e-2, 2e-2, 1e-2, 7e-3, 5e-3, 3e-3, 2e-3, 1e-3, 8e-4
+    5e-2, 2e-2, 1e-2, 7e-3, 5e-3, 3e-3, 2e-3, 1e-3, 7e-4
 )
-BASE_SEED = 20260812
+BASE_SEED = 20260830
 
 NOISY_OUTPUT_DIR = Path("outputs/noisy_error_decay")
 NOISY_CSV_PATH = NOISY_OUTPUT_DIR / "noisy_error_decay.csv"
