@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import math
 import sys
+from collections import Counter
 from dataclasses import replace
 from pathlib import Path
 from typing import Iterable, Sequence
@@ -79,7 +80,18 @@ GAMMA_GRID = (
 SINGLE_ROUND_EPSILON = 1e-4
 # Sample the logarithmic plot regularly by halving the bound at each point.
 REFERENCE_BOUND_GRID = tuple(INITIAL_BOUND / (2**level) for level in range(7))
-EPSILON_GRID = (1e-2, 5e-3, 2e-3, 1e-3, 5e-4, 2e-4, 1e-4)
+EPSILON_GRID = (
+    1e-2,
+    5e-3,
+    2e-3,
+    1e-3,
+    5e-4,
+    2e-4,
+    1e-4,
+    5e-5,
+    2e-5,
+    1e-5,
+)
 # Accuracy used for the schedule-structure plot.
 TRAJECTORY_EPSILON = 0.001
 OUTPUT_DIR = Path("outputs/exact_eigenstate")
@@ -353,6 +365,9 @@ def plot_iterative_restarts(
     standard = [float(row["standard_restarts"]) for row in rows]
     fixed_m_eht = [float(row["fixed_m_eht_restarts"]) for row in rows]
     adaptive_eht = [float(row["adaptive_eht_restarts"]) for row in rows]
+    amplifications = [int(float(row["max_m"])) for row in rows]
+    amplification_counts = Counter(amplifications)
+    amplification_occurrences: Counter[int] = Counter()
 
     fig, ax = plt.subplots(figsize=(7.2, 4.8))
     ax.plot(
@@ -378,18 +393,27 @@ def plot_iterative_restarts(
     )
     for row in rows:
         epsilon = float(row["epsilon"])
+        amplification = int(float(row["max_m"]))
+        occurrence = amplification_occurrences[amplification]
+        amplification_occurrences[amplification] += 1
         horizontal_alignment = (
             "left"
             if epsilon == max(epsilons)
             else "right" if epsilon == min(epsilons) else "center"
         )
+        repeated_above = (
+            amplification_counts[amplification] > 1
+            and occurrence % 2 == 1
+        )
+        vertical_offset = 10 if repeated_above else -14
+        vertical_alignment = "bottom" if repeated_above else "top"
         ax.annotate(
-            rf"$m\leq {int(float(row['max_m']))}$",
+            rf"$m\leq {amplification}$",
             xy=(epsilon, float(row["adaptive_eht_restarts"])),
-            xytext=(0, -14),
+            xytext=(0, vertical_offset),
             textcoords="offset points",
             ha=horizontal_alignment,
-            va="top",
+            va=vertical_alignment,
             fontsize=ANNOTATION_FONT_SIZE,
             color=METHOD_STYLES["adaptive_eht"]["color"],
         )
@@ -419,6 +443,9 @@ def plot_iterative_restart_ratio(
     import matplotlib.pyplot as plt
 
     epsilons = [float(row["epsilon"]) for row in rows]
+    amplifications = [int(float(row["max_m"])) for row in rows]
+    amplification_counts = Counter(amplifications)
+    amplification_occurrences: Counter[int] = Counter()
 
     fig, ax = plt.subplots(figsize=(7.2, 4.8))
     ax.plot(
@@ -429,18 +456,30 @@ def plot_iterative_restart_ratio(
     )
     for row in rows:
         epsilon = float(row["epsilon"])
+        amplification = int(float(row["max_m"]))
+        occurrence = amplification_occurrences[amplification]
+        amplification_occurrences[amplification] += 1
         horizontal_alignment = (
             "left"
             if epsilon == max(epsilons)
             else "right" if epsilon == min(epsilons) else "center"
         )
+        place_above = (
+            epsilon == max(epsilons)
+            or (
+                amplification_counts[amplification] > 1
+                and occurrence % 2 == 1
+            )
+        )
+        vertical_offset = 10 if place_above else -16
+        vertical_alignment = "bottom" if place_above else "top"
         ax.annotate(
-            rf"$m\leq {int(float(row['max_m']))}$",
+            rf"$m\leq {amplification}$",
             xy=(epsilon, float(row["restart_ratio"])),
-            xytext=(0, -16),
+            xytext=(0, vertical_offset),
             textcoords="offset points",
             ha=horizontal_alignment,
-            va="top",
+            va=vertical_alignment,
             fontsize=ANNOTATION_FONT_SIZE,
             color=METHOD_STYLES["adaptive_eht"]["color"],
         )

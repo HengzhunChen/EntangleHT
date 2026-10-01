@@ -621,7 +621,7 @@ def plot_rows(
                 restarts,
                 target_tolerances,
                 linewidth=2.0,
-                label=rf"{label} target tolerance",
+                label=rf"{label} theorectical error",
                 **target_style,
             )
             actual_style = RESTART_ACCURACY_STYLES[(method, "actual")]
@@ -641,7 +641,7 @@ def plot_rows(
             )
         ax.set_xscale("log")
         ax.set_yscale("log")
-        ax.set_xlabel("device restarts required for target accuracy")
+        ax.set_xlabel("device restarts")
         ax.set_ylabel(restart_accuracy_ylabel(model))
         ax.grid(alpha=0.28, which="major")
         ax.grid(alpha=0.12, which="minor")
@@ -657,9 +657,9 @@ def plot_rows(
 
 def restart_accuracy_ylabel(model: str) -> str:
     if model == "exact":
-        return "phase error magnitude"
+        return "phase error"
     if model == "imperfect":
-        return "effective-phase error magnitude"
+        return "effective-phase error"
     raise ValueError(f"unknown state model {model!r}")
 
 
