@@ -1,8 +1,5 @@
 # EntangleHT
 
-> **Status:** This research repository is under active development. The APIs,
-> experiment settings, and documentation may change.
-
 ## Project overview
 
 EntangleHT implements adaptive entanglement-assisted Hadamard testing for
@@ -18,6 +15,9 @@ Entangled Hadamard Test (AEHT). The main resource metric is the number
 of packed device restarts, which accounts for the number of independent
 circuit instances that can be executed in parallel on a finite-width
 quantum device.
+
+For more details, see also our paper:  
+*[Efficient quantum phase estimation with adaptive entanglement-assisted Hadamard test](http://arxiv.org/abs/2610.01772)*.
 
 ## Installation
 
